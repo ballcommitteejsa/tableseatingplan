@@ -32,7 +32,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# Custom Styling (wrapped cleanly to avoid syntax formatting errors)
 custom_css = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Montserrat:wght@300;400;600&display=swap');
@@ -251,34 +250,34 @@ def parse_uploaded_excel(uploaded_file):
         return df.dropna(subset=['Name']).reset_index(drop=True)
 
 # ==========================================
-# 5. GENERATE 2-PAGE A4 PDF
+# 5. GENERATE 2-PAGE A4 PDF (ENLARGED TYPOGRAPHY)
 # ==========================================
 def generate_2page_visual_pdf(df_sorted, table_cap):
     pdf_buffer = io.BytesIO()
     doc = SimpleDocTemplate(
         pdf_buffer,
         pagesize=landscape(A4),
-        leftMargin=20,
-        rightMargin=20,
-        topMargin=20,
-        bottomMargin=20
+        leftMargin=12,
+        rightMargin=12,
+        topMargin=12,
+        bottomMargin=12
     )
     
     styles = getSampleStyleSheet()
     title_style = ParagraphStyle(
-        'TitleStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, leading=15, alignment=1, textColor=colors.HexColor('#111111')
+        'TitleStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=14, leading=16, alignment=1, textColor=colors.HexColor('#111111')
     )
     subtitle_style = ParagraphStyle(
-        'SubTitleStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=7.5, leading=9, alignment=1, textColor=colors.HexColor('#666666')
+        'SubTitleStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=8.5, leading=10, alignment=1, textColor=colors.HexColor('#666666')
     )
     table_header_style = ParagraphStyle(
-        'TblHdr', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=colors.HexColor('#111111')
+        'TblHdr', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=9.0, leading=11, textColor=colors.HexColor('#111111')
     )
     seat_style = ParagraphStyle(
-        'SeatText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.0, leading=7.5, textColor=colors.HexColor('#222222')
+        'SeatText', parent=styles['Normal'], fontName='Helvetica', fontSize=7.4, leading=9.0, textColor=colors.HexColor('#222222')
     )
     comm_style = ParagraphStyle(
-        'CommText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.5, leading=7.0, alignment=2, textColor=colors.HexColor('#1A365D')
+        'CommText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=6.8, leading=8.5, alignment=2, textColor=colors.HexColor('#1A365D')
     )
     
     story = []
@@ -301,14 +300,14 @@ def generate_2page_visual_pdf(df_sorted, table_cap):
             right_p = Paragraph(comm_text, comm_style)
             card_data.append([left_p, right_p])
             
-        card_table = Table(card_data, colWidths=[110, 42])
+        card_table = Table(card_data, colWidths=[114, 46])
         card_table.setStyle(TableStyle([
             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
             ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#111111')),
             ('TOPPADDING', (0, 0), (-1, -1), 1),
             ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
-            ('LEFTPADDING', (0, 0), (-1, -1), 3),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ('LEFTPADDING', (0, 0), (-1, -1), 2.5),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2.5),
             ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB')),
             ('LINEBELOW', (0, 1), (-1, -1), 0.3, colors.HexColor('#F3F4F6')),
             ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
@@ -326,16 +325,16 @@ def generate_2page_visual_pdf(df_sorted, table_cap):
                 row_cards.append("")
             grid_data.append(row_cards)
             
-        col_w = 158
+        col_w = 163
         grid_table = Table(grid_data, colWidths=[col_w]*ncols)
         grid_table.setStyle(TableStyle([
             ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-            ('LEFTPADDING', (0, 0), (-1, -1), 2),
-            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-            ('TOPPADDING', (0, 0), (-1, -1), 4),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 1),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 1),
+            ('TOPPADDING', (0, 0), (-1, -1), 2),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 2),
         ]))
-        return [t_par, sub_par, Spacer(1, 8), grid_table]
+        return [t_par, sub_par, Spacer(1, 4), grid_table]
 
     story.extend(make_grid(table_cards[:mid_point], 1))
     if len(table_cards) > mid_point:
@@ -570,9 +569,7 @@ if uploaded_file:
                 df_sorted = df.sort_values(by=['Assigned_Table', 'Committee', 'Name']).reset_index(drop=True)
                 seating_map_lower = {name.lower(): tbl for name, tbl in seating.items()}
 
-                # ----------------------------------------------------
-                # AUDIT: UNFULFILLED WISHES CALCULATION
-                # ----------------------------------------------------
+                # Audit Unfulfilled Wishes
                 unfulfilled_rows = []
                 total_wishes = 0
                 fulfilled_wishes = 0
@@ -580,7 +577,6 @@ if uploaded_file:
                 for _, r in df.iterrows():
                     if pd.notna(r['Committee']):
                         continue
-                    
                     g_name = r['Name']
                     g_table = r['Assigned_Table']
 
@@ -588,7 +584,6 @@ if uploaded_file:
                         pref_val = r.get(p_col)
                         if pd.isna(pref_val) or not str(pref_val).strip():
                             continue
-                        
                         pref_str = str(pref_val).strip()
                         total_wishes += 1
 
@@ -637,93 +632,119 @@ if uploaded_file:
                 unfulfilled_df = pd.DataFrame(unfulfilled_rows)
                 satisfaction_rate = (fulfilled_wishes / total_wishes * 100) if total_wishes > 0 else 100.0
 
-                # ----------------------------------------------------
-                # SCORECARD METRICS
-                # ----------------------------------------------------
-                st.markdown("<br><h3 class='gala-title'>📊 Seating Satisfaction & Audit</h3>", unsafe_allow_html=True)
-                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
-                with m_col1:
-                    st.metric("Total Attendees Seated", len(df_sorted))
-                with m_col2:
-                    st.metric("Total Tables", df_sorted['Assigned_Table'].max())
-                with m_col3:
-                    st.metric("Wishes Fulfilled", f"{fulfilled_wishes} / {total_wishes}")
-                with m_col4:
-                    st.metric("Satisfaction Rate", f"{satisfaction_rate:.1f}%")
-
-                if len(unfulfilled_df) > 0:
-                    with st.expander(f"⚠️ View Unfulfilled Wishes ({len(unfulfilled_df)} instances)", expanded=False):
-                        st.dataframe(unfulfilled_df, use_container_width=True, hide_index=True)
-                else:
-                    st.success("🎉 100% of valid seating wishes were perfectly fulfilled!")
-
-                # ----------------------------------------------------
-                # KEUKENOVERZICHT
-                # ----------------------------------------------------
-                st.markdown("<br><h3 class='gala-title'>🍽️ Kitchen & Service Staff Dietary Overview</h3>", unsafe_allow_html=True)
-                diet_summary_rows = []
-                for tbl_num, grp in df_sorted.groupby('Assigned_Table'):
-                    with_diet = grp[grp['Dietary'].fillna('').str.strip() != '']
-                    if len(with_diet) > 0:
-                        details = " • " + "\n • ".join([f"{r['Name']}: {r['Dietary']}" for _, r in with_diet.iterrows()])
-                        diet_summary_rows.append({
-                            'Table': f"Table {tbl_num:02d}",
-                            'Special Meals Count': len(with_diet),
-                            'Allergy / Requirement Details': details
-                        })
-                
-                if diet_summary_rows:
-                    st.dataframe(pd.DataFrame(diet_summary_rows), use_container_width=True, hide_index=True)
-                else:
-                    st.success("No dietary restrictions reported.")
-
-                # ----------------------------------------------------
-                # VISUELE KAARTEN
-                # ----------------------------------------------------
-                st.markdown("<br><h3 class='gala-title'>Seating Chart Overview</h3>", unsafe_allow_html=True)
-                tables = df_sorted.groupby('Assigned_Table')
-                cols = st.columns(3)
-                for idx, (tbl_num, group) in enumerate(tables):
-                    with cols[idx % 3]:
-                        st.markdown(f"""
-                        <div class="table-card">
-                            <div class="table-header">
-                                <span>TABLE {tbl_num:02d}</span>
-                                <span style="font-size: 0.85rem; font-weight: normal; color: #6B7280;">{len(group)}/{table_cap} Guests</span>
-                            </div>
-                        """, unsafe_allow_html=True)
-                        for seat_idx, (_, r) in enumerate(group.iterrows(), 1):
-                            comm_label = f"<span class='tag-comm'>{r['Committee']}</span>" if pd.notna(r['Committee']) else "<span class='tag-indiv'>Guest</span>"
-                            diet_badge = f"<span class='diet-badge'>{r['Dietary']}</span>" if r['Dietary'] else ""
-                            st.markdown(f"""
-                            <div class="seat-row">
-                                <span><span class="seat-number">{seat_idx:02d}.</span> {r['Name']}{diet_badge}</span>
-                                {comm_label}
-                            </div>
-                            """, unsafe_allow_html=True)
-                        st.markdown("</div>", unsafe_allow_html=True)
-
-                # ----------------------------------------------------
-                # DOWNLOAD BUTTONS
-                # ----------------------------------------------------
-                col_dl1, col_dl2 = st.columns(2)
-                with col_dl1:
-                    pdf_bytes = generate_2page_visual_pdf(df_sorted, table_cap)
-                    st.download_button(
-                        label="📄 Download Visual Seating Plan (2-Page A4 PDF)",
-                        data=pdf_bytes,
-                        file_name="Ball_Committee_Seating_Plan_2Page_A4.pdf",
-                        mime="application/pdf",
-                        use_container_width=True
-                    )
-                with col_dl2:
-                    excel_bytes = build_printable_excel_workbook(df_sorted, unfulfilled_df)
-                    st.download_button(
-                        label="📥 Download Full Seating Plan, Kitchen Briefing & Audit (Excel)",
-                        data=excel_bytes,
-                        file_name="Ball_Committee_Seating_Plan_Printable.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        use_container_width=True
-                    )
+                # Store into session_state
+                st.session_state['seating_computed'] = True
+                st.session_state['df_sorted'] = df_sorted
+                st.session_state['unfulfilled_df'] = unfulfilled_df
+                st.session_state['fulfilled_wishes'] = fulfilled_wishes
+                st.session_state['total_wishes'] = total_wishes
+                st.session_state['satisfaction_rate'] = satisfaction_rate
+                st.session_state['table_cap'] = table_cap
+                st.session_state['pdf_bytes'] = generate_2page_visual_pdf(df_sorted, table_cap)
+                st.session_state['excel_bytes'] = build_printable_excel_workbook(df_sorted, unfulfilled_df)
             else:
+                st.session_state['seating_computed'] = False
                 st.error("Could not find a feasible arrangement. Check group sizes against table capacity.")
+
+# ==========================================
+# 8. RENDER RESULTS (PERSISTENT VIA SESSION STATE)
+# ==========================================
+if st.session_state.get('seating_computed', False):
+    df_sorted = st.session_state['df_sorted']
+    unfulfilled_df = st.session_state['unfulfilled_df']
+    fulfilled_wishes = st.session_state['fulfilled_wishes']
+    total_wishes = st.session_state['total_wishes']
+    satisfaction_rate = st.session_state['satisfaction_rate']
+    table_cap = st.session_state['table_cap']
+    pdf_bytes = st.session_state['pdf_bytes']
+    excel_bytes = st.session_state['excel_bytes']
+
+    # ----------------------------------------------------
+    # SCORECARD METRICS
+    # ----------------------------------------------------
+    st.markdown("<br><h3 class='gala-title'>📊 Seating Satisfaction & Audit</h3>", unsafe_allow_html=True)
+    m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+    with m_col1:
+        st.metric("Total Attendees Seated", len(df_sorted))
+    with m_col2:
+        st.metric("Total Tables", int(df_sorted['Assigned_Table'].max()))
+    with m_col3:
+        st.metric("Wishes Fulfilled", f"{fulfilled_wishes} / {total_wishes}")
+    with m_col4:
+        st.metric("Satisfaction Rate", f"{satisfaction_rate:.1f}%")
+
+    if len(unfulfilled_df) > 0:
+        with st.expander(f"⚠️ View Unfulfilled Wishes ({len(unfulfilled_df)} instances)", expanded=False):
+            st.dataframe(unfulfilled_df, use_container_width=True, hide_index=True)
+    else:
+        st.success("🎉 100% of valid seating wishes were perfectly fulfilled!")
+
+    # ----------------------------------------------------
+    # KEUKENOVERZICHT
+    # ----------------------------------------------------
+    st.markdown("<br><h3 class='gala-title'>🍽️ Kitchen & Service Staff Dietary Overview</h3>", unsafe_allow_html=True)
+    diet_summary_rows = []
+    for tbl_num, grp in df_sorted.groupby('Assigned_Table'):
+        with_diet = grp[grp['Dietary'].fillna('').str.strip() != '']
+        if len(with_diet) > 0:
+            details = " • " + "\n • ".join([f"{r['Name']}: {r['Dietary']}" for _, r in with_diet.iterrows()])
+            diet_summary_rows.append({
+                'Table': f"Table {tbl_num:02d}",
+                'Special Meals Count': len(with_diet),
+                'Allergy / Requirement Details': details
+            })
+    
+    if diet_summary_rows:
+        st.dataframe(pd.DataFrame(diet_summary_rows), use_container_width=True, hide_index=True)
+    else:
+        st.success("No dietary restrictions reported.")
+
+    # ----------------------------------------------------
+    # VISUELE TAFELKAARTEN
+    # ----------------------------------------------------
+    st.markdown("<br><h3 class='gala-title'>Seating Chart Overview</h3>", unsafe_allow_html=True)
+    tables = df_sorted.groupby('Assigned_Table')
+    cols = st.columns(3)
+    for idx, (tbl_num, group) in enumerate(tables):
+        with cols[idx % 3]:
+            st.markdown(f"""
+            <div class="table-card">
+                <div class="table-header">
+                    <span>TABLE {tbl_num:02d}</span>
+                    <span style="font-size: 0.85rem; font-weight: normal; color: #6B7280;">{len(group)}/{table_cap} Guests</span>
+                </div>
+            """, unsafe_allow_html=True)
+            for seat_idx, (_, r) in enumerate(group.iterrows(), 1):
+                comm_label = f"<span class='tag-comm'>{r['Committee']}</span>" if pd.notna(r['Committee']) else "<span class='tag-indiv'>Guest</span>"
+                diet_badge = f"<span class='diet-badge'>{r['Dietary']}</span>" if r['Dietary'] else ""
+                st.markdown(f"""
+                <div class="seat-row">
+                    <span><span class="seat-number">{seat_idx:02d}.</span> {r['Name']}{diet_badge}</span>
+                    {comm_label}
+                </div>
+                """, unsafe_allow_html=True)
+            st.markdown("</div>", unsafe_allow_html=True)
+
+    # ----------------------------------------------------
+    # DOWNLOAD BUTTONS
+    # ----------------------------------------------------
+    st.markdown("<hr style='border: none; border-top: 1px solid #E5E7EB; margin: 2rem 0;'>", unsafe_allow_html=True)
+    col_dl1, col_dl2 = st.columns(2)
+    with col_dl1:
+        st.download_button(
+            label="📄 Download Visual Seating Plan (2-Page A4 PDF)",
+            data=pdf_bytes,
+            file_name="Ball_Committee_Seating_Plan_2Page_A4.pdf",
+            mime="application/pdf",
+            use_container_width=True,
+            key="btn_dl_pdf"
+        )
+    with col_dl2:
+        st.download_button(
+            label="📥 Download Full Seating Plan, Kitchen Briefing & Audit (Excel)",
+            data=excel_bytes,
+            file_name="Ball_Committee_Seating_Plan_Printable.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="btn_dl_excel"
+        )
