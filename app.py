@@ -1,4 +1,3 @@
-from PIL import Image
 import io
 import os
 import pandas as pd
@@ -13,23 +12,17 @@ from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-# ==========================================
-# 1. PAGE CONFIGURATION & LOGO FAVICON
-# ==========================================
-def get_page_icon():
-    for name in ["ball_logo.png", "ball logo high res.jpg", "input_file_0.png"]:
-        if os.path.exists(name):
-            try:
-                return Image.open(name)
-            except Exception:
-                pass
-    return "🍾"
 
+# ==========================================
+# 1. LUXE GALA HUISSTIJL & THEMA
+# ==========================================
 st.set_page_config(
     page_title="Ball Committee Seating Engine",
-    page_icon=get_page_icon(),
+    page_icon="🍾",
     layout="wide"
 )
+
+st.markdown("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Montserrat:wght@300;400;600&display=swap');
 
