@@ -7,6 +7,12 @@ import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
 
+# PDF Generation imports
+from reportlab.lib.pagesizes import A4, landscape
+from reportlab.lib import colors
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
 # ==========================================
 # 1. LUXE GALA HUISSTIJL & THEMA
 # ==========================================
@@ -114,6 +120,14 @@ st.markdown("""
         border-radius: 4px;
         margin-bottom: 20px;
     }
+    .metric-card {
+        background-color: #FFFFFF;
+        border: 1px solid #E5E7EB;
+        border-radius: 4px;
+        padding: 14px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -144,7 +158,7 @@ with st.sidebar:
     table_cap = st.slider("Seats per Table", min_value=4, max_value=16, value=10)
     max_time = st.slider("Max Solver Time (sec)", min_value=5, max_value=60, value=25)
     st.markdown("---")
-    st.caption("✅ Dynamically detects **ANY committee name** and supports single/double ticket Hitract exports.")
+    st.caption("✅ Dynamically detects **ANY committee name** and generates an **unfulfilled wishes audit report**.")
 
 # ==========================================
 # 4. UNIVERSELE DYNAMISCHE DATA PARSER
@@ -163,7 +177,6 @@ def parse_uploaded_excel(uploaded_file):
     is_hitract = 'Name ticket 1 ' in df_raw.columns or 'Förnamn' in df_raw.columns
 
     if is_hitract:
-        # Stap 1: Verzamel eerst alle unieke persoonsnamen
         all_guest_names = set()
         for _, row in df_raw.iterrows():
             fn = str(row.get('Förnamn', '')).strip() if pd.notna(row.get('Förnamn')) else ''
@@ -197,13 +210,12 @@ def parse_uploaded_excel(uploaded_file):
             diet2 = str(row.get('Dietary requirements second guest (leave blank if none)', '')).strip() if pd.notna(row.get('Dietary requirements second guest (leave blank if none)')) else ''
 
             if occ == 1 or not n2:
-                # Bepaal dynamisch of voorkeur een commissie is (indien niet in persoonsnamenlijst)
                 comm = c1_raw or (p1_1 if p1_1 and p1_1.lower() not in all_guest_names else None) or (p1_2 if p1_2 and p1_2.lower() not in all_guest_names else None)
                 parsed.append({
                     'Name': n1,
                     'Committee': comm if comm else None,
-                    'Preference_1': None if comm else (p1_1 if p1_1.lower() in all_guest_names else None),
-                    'Preference_2': None if comm else (p1_2 if p1_2.lower() in all_guest_names else None),
+                    'Preference_1': p1_1 if p1_1 else None,
+                    'Preference_2': p1_2 if p1_2 else None,
                     'Dietary': diet1
                 })
             elif occ == 2 and n2:
@@ -211,8 +223,8 @@ def parse_uploaded_excel(uploaded_file):
                 parsed.append({
                     'Name': n2,
                     'Committee': comm if comm else None,
-                    'Preference_1': None if comm else (p2_1 if p2_1.lower() in all_guest_names else None),
-                    'Preference_2': None if comm else (p2_2 if p2_2.lower() in all_guest_names else None),
+                    'Preference_1': p2_1 if p2_1 else None,
+                    'Preference_2': p2_2 if p2_2 else None,
                     'Dietary': diet2
                 })
         return pd.DataFrame(parsed)
@@ -225,9 +237,104 @@ def parse_uploaded_excel(uploaded_file):
         return df.dropna(subset=['Name']).reset_index(drop=True)
 
 # ==========================================
-# 5. PRINTKLAAR EXCEL DOCUMENT MAKEN (A4)
+# 5. GENERATE 2-PAGE A4 PDF
 # ==========================================
-def build_printable_excel_workbook(df_sorted):
+def generate_2page_visual_pdf(df_sorted, table_cap):
+    pdf_buffer = io.BytesIO()
+    doc = SimpleDocTemplate(
+        pdf_buffer,
+        pagesize=landscape(A4),
+        leftMargin=20,
+        rightMargin=20,
+        topMargin=20,
+        bottomMargin=20
+    )
+    
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle(
+        'TitleStyle', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, leading=15, alignment=1, textColor=colors.HexColor('#111111')
+    )
+    subtitle_style = ParagraphStyle(
+        'SubTitleStyle', parent=styles['Normal'], fontName='Helvetica', fontSize=7.5, leading=9, alignment=1, textColor=colors.HexColor('#666666')
+    )
+    table_header_style = ParagraphStyle(
+        'TblHdr', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=7.5, leading=9, textColor=colors.HexColor('#111111')
+    )
+    seat_style = ParagraphStyle(
+        'SeatText', parent=styles['Normal'], fontName='Helvetica', fontSize=6.0, leading=7.5, textColor=colors.HexColor('#222222')
+    )
+    comm_style = ParagraphStyle(
+        'CommText', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=5.5, leading=7.0, alignment=2, textColor=colors.HexColor('#1A365D')
+    )
+    
+    story = []
+    tables = list(df_sorted.groupby('Assigned_Table'))
+    total_tables = len(tables)
+    mid_point = (total_tables + 1) // 2
+    
+    table_cards = []
+    for tbl_num, grp in tables:
+        card_data = []
+        hdr_cell = Paragraph(f"<b>TABLE {tbl_num:02d}</b> ({len(grp)}/{table_cap})", table_header_style)
+        card_data.append([hdr_cell, ""])
+        
+        for seat_idx, (_, r) in enumerate(grp.iterrows(), 1):
+            name_text = f"<b>{seat_idx:02d}.</b> {r['Name']}"
+            if r.get('Dietary'):
+                name_text += f" <font color='#B45309'>[{r['Dietary']}]</font>"
+            left_p = Paragraph(name_text, seat_style)
+            comm_text = r['Committee'] if pd.notna(r['Committee']) else ""
+            right_p = Paragraph(comm_text, comm_style)
+            card_data.append([left_p, right_p])
+            
+        card_table = Table(card_data, colWidths=[110, 42])
+        card_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#F3F4F6')),
+            ('LINEBELOW', (0, 0), (-1, 0), 1, colors.HexColor('#111111')),
+            ('TOPPADDING', (0, 0), (-1, -1), 1),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 1),
+            ('LEFTPADDING', (0, 0), (-1, -1), 3),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 3),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#D1D5DB')),
+            ('LINEBELOW', (0, 1), (-1, -1), 0.3, colors.HexColor('#F3F4F6')),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ]))
+        table_cards.append(card_table)
+
+    def make_grid(cards_subset, page_num):
+        grid_data = []
+        t_par = Paragraph("<b>BALL COMMITTEE — BANQUET SEATING PLAN</b>", title_style)
+        sub_par = Paragraph(f"Official Banquet Seating Layout • Page {page_num} of 2", subtitle_style)
+        ncols = 5
+        for r_idx in range(0, len(cards_subset), ncols):
+            row_cards = cards_subset[r_idx : r_idx + ncols]
+            while len(row_cards) < ncols:
+                row_cards.append("")
+            grid_data.append(row_cards)
+            
+        col_w = 158
+        grid_table = Table(grid_data, colWidths=[col_w]*ncols)
+        grid_table.setStyle(TableStyle([
+            ('VALIGN', (0, 0), (-1, -1), 'TOP'),
+            ('LEFTPADDING', (0, 0), (-1, -1), 2),
+            ('RIGHTPADDING', (0, 0), (-1, -1), 2),
+            ('TOPPADDING', (0, 0), (-1, -1), 4),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ]))
+        return [t_par, sub_par, Spacer(1, 8), grid_table]
+
+    story.extend(make_grid(table_cards[:mid_point], 1))
+    if len(table_cards) > mid_point:
+        story.append(PageBreak())
+        story.extend(make_grid(table_cards[mid_point:], 2))
+
+    doc.build(story)
+    return pdf_buffer.getvalue()
+
+# ==========================================
+# 6. PRINTKLAAR EXCEL DOCUMENT MAKEN (A4)
+# ==========================================
+def build_printable_excel_workbook(df_sorted, unfulfilled_df):
     wb = openpyxl.Workbook()
     
     # TAB 1: KITCHEN STAFF BRIEFING (A4)
@@ -256,10 +363,8 @@ def build_printable_excel_workbook(df_sorted):
     h_fill = PatternFill(start_color="111111", end_color="111111", fill_type="solid")
     h_font = Font(name='Calibri', size=11, bold=True, color="FFFFFF")
     thin_border = Border(
-        left=Side(style='thin', color='DDDDDD'),
-        right=Side(style='thin', color='DDDDDD'),
-        top=Side(style='thin', color='DDDDDD'),
-        bottom=Side(style='thin', color='DDDDDD')
+        left=Side(style='thin', color='DDDDDD'), right=Side(style='thin', color='DDDDDD'),
+        top=Side(style='thin', color='DDDDDD'), bottom=Side(style='thin', color='DDDDDD')
     )
 
     for col_idx in range(1, 5):
@@ -328,7 +433,24 @@ def build_printable_excel_workbook(df_sorted):
         col_letter = get_column_letter(col[0].column)
         ws_visual.column_dimensions[col_letter].width = max(max_len + 4, 16)
 
-    # TAB 3: HOSTESS ENTRANCE LIST
+    # TAB 3: UNFULFILLED WISHES REPORT
+    ws_unfulfilled = wb.create_sheet(title="Unfulfilled Wishes Report")
+    u_headers = ["Guest Name", "Assigned Table", "Requested Wish", "Requested Guest Table", "Status / Reason"]
+    ws_unfulfilled.append(u_headers)
+    for c_idx in range(1, 6):
+        c = ws_unfulfilled.cell(row=1, column=c_idx)
+        c.fill = h_fill
+        c.font = h_font
+
+    for _, r in unfulfilled_df.iterrows():
+        ws_unfulfilled.append([r['Guest Name'], r['Assigned Table'], r['Requested Wish'], r['Requested Guest Table'], r['Status / Reason']])
+
+    for col in ws_unfulfilled.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = get_column_letter(col[0].column)
+        ws_unfulfilled.column_dimensions[col_letter].width = max(max_len + 4, 16)
+
+    # TAB 4: HOSTESS ENTRANCE LIST
     ws_hostess = wb.create_sheet(title="Hostess Entrance List")
     h_headers = ["Guest Name", "Table", "Committee", "Dietary Requirement"]
     ws_hostess.append(h_headers)
@@ -350,7 +472,7 @@ def build_printable_excel_workbook(df_sorted):
     return output.getvalue()
 
 # ==========================================
-# 6. APP UI & OPTIMALISATIE ENGINE
+# 7. APP UI & OPTIMALISATIE ENGINE
 # ==========================================
 uploaded_file = st.file_uploader("Upload Ball Guestlist (.xlsx)", type=["xlsx"])
 
@@ -378,7 +500,6 @@ if uploaded_file:
             for t in range(n_tables):
                 model.Add(sum(x[i, t] for i in range(n_attendees)) <= table_cap)
 
-            # Dynamische commissies vergrendelen
             comm_members_map = {}
             if 'Committee' in df.columns:
                 for comm_name, comm_df in df.dropna(subset=['Committee']).groupby('Committee'):
@@ -389,7 +510,6 @@ if uploaded_file:
                             for t in range(n_tables):
                                 model.Add(x[m, t] == x[c_members[0], t])
 
-            # Wederzijdse en individuele scores
             score_terms = []
             for _, row in df.iterrows():
                 if pd.notna(row['Committee']):
@@ -434,8 +554,101 @@ if uploaded_file:
                 
                 df['Assigned_Table'] = df['Name'].map(seating)
                 df_sorted = df.sort_values(by=['Assigned_Table', 'Committee', 'Name']).reset_index(drop=True)
+                seating_map_lower = {name.lower(): tbl for name, tbl in seating.items()}
 
-                # Keukenoverzicht
+                # ----------------------------------------------------
+                # AUDIT: UNFULFILLED WISHES CALCULATION
+                # ----------------------------------------------------
+                unfulfilled_rows = []
+                total_wishes = 0
+                fulfilled_wishes = 0
+
+                for _, r in df.iterrows():
+                    # If person is seated with a locked committee, their individual wishes aren't calculated
+                    if pd.notna(r['Committee']):
+                        continue
+                    
+                    g_name = r['Name']
+                    g_table = r['Assigned_Table']
+
+                    for p_col in ['Preference_1', 'Preference_2']:
+                        pref_val = r.get(p_col)
+                        if pd.isna(pref_val) or not str(pref_val).strip():
+                            continue
+                        
+                        pref_str = str(pref_val).strip()
+                        total_wishes += 1
+
+                        # Case A: Preference is a specific attendee
+                        if pref_str.lower() in seating_map_lower:
+                            target_t = seating_map_lower[pref_str.lower()]
+                            if target_t == g_table:
+                                fulfilled_wishes += 1
+                            else:
+                                unfulfilled_rows.append({
+                                    'Guest Name': g_name,
+                                    'Assigned Table': f"Table {g_table:02d}",
+                                    'Requested Wish': pref_str,
+                                    'Requested Guest Table': f"Table {target_t:02d}",
+                                    'Status / Reason': 'Different table due to table capacity limits'
+                                })
+                        # Case B: Preference is a committee name
+                        else:
+                            matched_comm = False
+                            for c_name, members in comm_members_map.items():
+                                if c_name in pref_str.lower() or pref_str.lower() in c_name:
+                                    if members:
+                                        first_member_name = attendees[members[0]]
+                                        comm_t = seating[first_member_name]
+                                        if comm_t == g_table:
+                                            fulfilled_wishes += 1
+                                            matched_comm = True
+                                            break
+                                        else:
+                                            unfulfilled_rows.append({
+                                                'Guest Name': g_name,
+                                                'Assigned Table': f"Table {g_table:02d}",
+                                                'Requested Wish': f"[{pref_str}] Committee Table",
+                                                'Requested Guest Table': f"Table {comm_t:02d}",
+                                                'Status / Reason': 'Committee table reached capacity'
+                                            })
+                                            matched_comm = True
+                                            break
+                            if not matched_comm:
+                                unfulfilled_rows.append({
+                                    'Guest Name': g_name,
+                                    'Assigned Table': f"Table {g_table:02d}",
+                                    'Requested Wish': pref_str,
+                                    'Requested Guest Table': 'Not Found',
+                                    'Status / Reason': 'Name / Committee not registered in guestlist'
+                                })
+
+                unfulfilled_df = pd.DataFrame(unfulfilled_rows)
+                satisfaction_rate = (fulfilled_wishes / total_wishes * 100) if total_wishes > 0 else 100.0
+
+                # ----------------------------------------------------
+                # SCORECARD METRICS
+                # ----------------------------------------------------
+                st.markdown("<br><h3 class='gala-title'>📊 Seating Satisfaction & Audit</h3>", unsafe_allow_html=True)
+                m_col1, m_col2, m_col3, m_col4 = st.columns(4)
+                with m_col1:
+                    st.metric("Total Attendees Seated", len(df_sorted))
+                with m_col2:
+                    st.metric("Total Tables", df_sorted['Assigned_Table'].max())
+                with m_col3:
+                    st.metric("Wishes Fulfilled", f"{fulfilled_wishes} / {total_wishes}")
+                with m_col4:
+                    st.metric("Satisfaction Rate", f"{satisfaction_rate:.1f}%")
+
+                if len(unfulfilled_df) > 0:
+                    with st.expander(f"⚠️ View Unfulfilled Wishes ({len(unfulfilled_df)} instances)", expanded=False):
+                        st.dataframe(unfulfilled_df, use_container_width=True, hide_index=True)
+                else:
+                    st.success("🎉 100% of valid seating wishes were perfectly fulfilled!")
+
+                # ----------------------------------------------------
+                # KEUKENOVERZICHT
+                # ----------------------------------------------------
                 st.markdown("<br><h3 class='gala-title'>🍽️ Kitchen & Service Staff Dietary Overview</h3>", unsafe_allow_html=True)
                 diet_summary_rows = []
                 for tbl_num, grp in df_sorted.groupby('Assigned_Table'):
@@ -453,7 +666,9 @@ if uploaded_file:
                 else:
                     st.success("No dietary restrictions reported.")
 
-                # Visuele Kaarten
+                # ----------------------------------------------------
+                # VISUELE KAARTEN
+                # ----------------------------------------------------
                 st.markdown("<br><h3 class='gala-title'>Seating Chart Overview</h3>", unsafe_allow_html=True)
                 tables = df_sorted.groupby('Assigned_Table')
                 cols = st.columns(3)
@@ -477,12 +692,27 @@ if uploaded_file:
                             """, unsafe_allow_html=True)
                         st.markdown("</div>", unsafe_allow_html=True)
 
-                excel_bytes = build_printable_excel_workbook(df_sorted)
-                st.download_button(
-                    label="📥 Download Printable Seating Plan & Kitchen Briefing (Excel)",
-                    data=excel_bytes,
-                    file_name="Ball_Committee_Seating_Plan_Printable.xlsx",
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                # ----------------------------------------------------
+                # DOWNLOAD BUTTONS
+                # ----------------------------------------------------
+                col_dl1, col_dl2 = st.columns(2)
+                with col_dl1:
+                    pdf_bytes = generate_2page_visual_pdf(df_sorted, table_cap)
+                    st.download_button(
+                        label="📄 Download Visual Seating Plan (2-Page A4 PDF)",
+                        data=pdf_bytes,
+                        file_name="Ball_Committee_Seating_Plan_2Page_A4.pdf",
+                        mime="application/pdf",
+                        use_container_width=True
+                    )
+                with col_dl2:
+                    excel_bytes = build_printable_excel_workbook(df_sorted, unfulfilled_df)
+                    st.download_button(
+                        label="📥 Download Full Seating Plan, Kitchen Briefing & Audit (Excel)",
+                        data=excel_bytes,
+                        file_name="Ball_Committee_Seating_Plan_Printable.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True
+                    )
             else:
                 st.error("Could not find a feasible arrangement. Check group sizes against table capacity.")
