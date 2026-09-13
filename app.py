@@ -1,6 +1,7 @@
 import io
 import os
 import time
+import difflib
 import pandas as pd
 import streamlit as st
 from ortools.sat.python import cp_model
@@ -171,7 +172,7 @@ with st.sidebar:
     st.markdown("### ⚙️ Gala Parameters")
     table_cap = st.number_input("Seats per Table", min_value=2, max_value=30, value=10, step=1)
     st.markdown("---")
-    st.caption("✅ Supports **Spring Inspiration** & **Ball Committee** as distinct separate committees.")
+    st.caption("✅ Features **Fuzzy Name Matching** to prevent misspelled guest names from becoming false committees.")
 
 # ==========================================
 # 4. UNIVERSELE DYNAMISCHE DATA PARSER
@@ -192,18 +193,50 @@ COMMITTEE_ALIASES = {
     "Quality Committee": ["quality committee", "quality"]
 }
 
+def clean_text_simple(t):
+    if not t: return ""
+    return str(t).lower().replace("-", " ").replace(".", "").replace("'", "").strip()
+
 def resolve_committee_alias(text):
     if not text or pd.isna(text):
         return None
-    raw = str(text).strip().lower()
-    if not raw or raw in ['-', 'none', 'nej', 'no', 'vet inte', 'ingen', 'x']:
+    raw = clean_text_simple(text)
+    if not raw or raw in ['none', 'nej', 'no', 'vet inte', 'ingen', 'x', 'nothing', 'inga']:
         return None
     
+    # Check official aliases
     for canonical, variations in COMMITTEE_ALIASES.items():
         for var in variations:
             if raw == var or f" {var} " in f" {raw} " or raw.startswith(f"{var} ") or raw.endswith(f" {var}"):
                 return canonical
+    
+    # Check if explicit word 'committee' or 'styrelsen' is in string
+    if "committee" in raw or "styrelsen" in raw or "projektgrupp" in raw:
+        return str(text).strip().title()
+        
     return None
+
+def find_best_person_match(pref_text, all_attendees_list):
+    if not pref_text or pd.isna(pref_text):
+        return None
+    pref_clean = clean_text_simple(pref_text)
+    if not pref_clean or pref_clean in ['none', 'nej', 'no', 'ingen', 'x', 'vet inte']:
+        return None
+
+    # 1. Exact match (case & hyphen insensitive)
+    for original_name in all_attendees_list:
+        if clean_text_simple(original_name) == pref_clean:
+            return original_name
+
+    # 2. Fuzzy match (handles typos, Oscar vs Oskar, missing middle names)
+    cleaned_all = [clean_text_simple(n) for n in all_attendees_list]
+    matches = difflib.get_close_matches(pref_clean, cleaned_all, n=1, cutoff=0.74)
+    if matches:
+        matched_idx = cleaned_all.index(matches[0])
+        return all_attendees_list[matched_idx]
+
+    # Return raw text if not found, but it won't be made a committee
+    return str(pref_text).strip()
 
 def parse_uploaded_excel(uploaded_file):
     xls = pd.ExcelFile(uploaded_file)
@@ -229,30 +262,41 @@ def parse_uploaded_excel(uploaded_file):
     is_hitract = 'Name ticket 1 ' in df_raw.columns or 'Förnamn' in df_raw.columns
 
     if is_hitract:
-        all_guest_names = set()
+        # Pass 1: Build the complete, clean attendee list
+        all_guest_names = []
+        buyer_counts = {}
+        
         for _, row in df_raw.iterrows():
             fn = str(row.get('Förnamn', '')).strip() if pd.notna(row.get('Förnamn')) else ''
             ln = str(row.get('Efternamn', '')).strip() if pd.notna(row.get('Efternamn')) else ''
+            sdate = str(row.get('Försäljnignsdatum', '')).strip() if pd.notna(row.get('Försäljnignsdatum')) else ''
+            b_key = f"{fn}_{ln}_{sdate}"
+            occ = buyer_counts.get(b_key, 0) + 1
+            buyer_counts[b_key] = occ
+
             n1 = str(row.get('Name ticket 1 ', '')).strip() if pd.notna(row.get('Name ticket 1 ')) else f"{fn} {ln}".strip()
             n2 = str(row.get("Second guest's full name (if purchasing a second ticket)", '')).strip() if pd.notna(row.get("Second guest's full name (if purchasing a second ticket)")) else ''
-            if n1: all_guest_names.add(n1.lower())
-            if n2: all_guest_names.add(n2.lower())
 
-        buyer_counts = {}
+            if occ == 1 or not n2:
+                if n1: all_guest_names.append(n1)
+            else:
+                guest2_name = n2 if n2 else f"Guest of {n1}"
+                all_guest_names.append(guest2_name)
+
+        # Pass 2: Parse preferences with fuzzy matching (No false committees)
+        buyer_counts_2 = {}
         parsed = []
+        
         for _, row in df_raw.iterrows():
             fname = str(row.get('Förnamn', '')).strip() if pd.notna(row.get('Förnamn')) else ''
             lname = str(row.get('Efternamn', '')).strip() if pd.notna(row.get('Efternamn')) else ''
             sdate = str(row.get('Försäljnignsdatum', '')).strip() if pd.notna(row.get('Försäljnignsdatum')) else ''
             b_key = f"{fname}_{lname}_{sdate}"
-            occ = buyer_counts.get(b_key, 0) + 1
-            buyer_counts[b_key] = occ
+            occ = buyer_counts_2.get(b_key, 0) + 1
+            buyer_counts_2[b_key] = occ
 
             n1 = str(row.get('Name ticket 1 ', '')).strip() if pd.notna(row.get('Name ticket 1 ')) else f"{fname} {lname}".strip()
             n2 = str(row.get("Second guest's full name (if purchasing a second ticket)", '')).strip() if pd.notna(row.get("Second guest's full name (if purchasing a second ticket)")) else ''
-
-            if not n2 and occ > 1:
-                n2 = f"Guest of {n1}"
 
             c1_raw = str(row.get('Committee table', '')).strip() if pd.notna(row.get('Committee table')) else ''
             p1_1 = str(row.get('Seating preference 1: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 1: Full name (First & Last name) or committee name. ')) else ''
@@ -265,23 +309,32 @@ def parse_uploaded_excel(uploaded_file):
             diet2 = str(row.get('Dietary requirements second guest (leave blank if none)', '')).strip() if pd.notna(row.get('Dietary requirements second guest (leave blank if none)')) else ''
 
             if occ == 1 or not n2:
-                alias_comm = resolve_committee_alias(c1_raw) or resolve_committee_alias(p1_1) or resolve_committee_alias(p1_2)
-                comm = alias_comm or c1_raw or (p1_1 if p1_1 and p1_1.lower() not in all_guest_names else None) or (p1_2 if p1_2 and p1_2.lower() not in all_guest_names else None)
+                # Check for committee ONLY via explicit column or known aliases
+                comm = resolve_committee_alias(c1_raw) or resolve_committee_alias(p1_1) or resolve_committee_alias(p1_2)
+                
+                # Match preferences with fuzzy logic against registered guests
+                match_p1 = find_best_person_match(p1_1, all_guest_names) if not resolve_committee_alias(p1_1) else None
+                match_p2 = find_best_person_match(p1_2, all_guest_names) if not resolve_committee_alias(p1_2) else None
+                
                 parsed.append({
                     'Name': n1,
-                    'Committee': comm if comm else None,
-                    'Preference_1': p1_1 if p1_1 and not alias_comm else None,
-                    'Preference_2': p1_2 if p1_2 and not alias_comm else None,
+                    'Committee': comm,
+                    'Preference_1': match_p1 if not comm else None,
+                    'Preference_2': match_p2 if not comm else None,
                     'Dietary': diet1
                 })
             else:
-                alias_comm = resolve_committee_alias(c2_raw) or resolve_committee_alias(p2_1) or resolve_committee_alias(p2_2)
-                comm = alias_comm or c2_raw or (p2_1 if p2_1 and p2_1.lower() not in all_guest_names else None) or (p2_2 if p2_2 and p2_2.lower() not in all_guest_names else None)
+                guest_name = n2 if n2 else f"Guest of {n1}"
+                comm = resolve_committee_alias(c2_raw) or resolve_committee_alias(p2_1) or resolve_committee_alias(p2_2)
+                
+                match_p1 = find_best_person_match(p2_1, all_guest_names) if not resolve_committee_alias(p2_1) else n1
+                match_p2 = find_best_person_match(p2_2, all_guest_names) if not resolve_committee_alias(p2_2) else None
+
                 parsed.append({
-                    'Name': n2,
-                    'Committee': comm if comm else None,
-                    'Preference_1': p2_1 if p2_1 and not alias_comm else n1,
-                    'Preference_2': p2_2 if p2_2 and not alias_comm else None,
+                    'Name': guest_name,
+                    'Committee': comm,
+                    'Preference_1': match_p1 if not comm else None,
+                    'Preference_2': match_p2 if not comm else None,
                     'Dietary': diet2
                 })
         return pd.DataFrame(parsed)
@@ -289,13 +342,17 @@ def parse_uploaded_excel(uploaded_file):
         df = df_raw.iloc[:, 0:4].copy()
         df.columns = ['Name', 'Committee', 'Preference_1', 'Preference_2']
         df['Dietary'] = df_raw.iloc[:, 4].fillna("").astype(str).str.strip() if df_raw.shape[1] > 4 else ""
+        all_guest_names = df['Name'].dropna().tolist()
         
         for idx, row in df.iterrows():
             c_alias = resolve_committee_alias(row['Committee']) or resolve_committee_alias(row['Preference_1']) or resolve_committee_alias(row['Preference_2'])
             if c_alias:
                 df.at[idx, 'Committee'] = c_alias
-                if resolve_committee_alias(row['Preference_1']): df.at[idx, 'Preference_1'] = None
-                if resolve_committee_alias(row['Preference_2']): df.at[idx, 'Preference_2'] = None
+                df.at[idx, 'Preference_1'] = None
+                df.at[idx, 'Preference_2'] = None
+            else:
+                df.at[idx, 'Preference_1'] = find_best_person_match(row['Preference_1'], all_guest_names)
+                df.at[idx, 'Preference_2'] = find_best_person_match(row['Preference_2'], all_guest_names)
 
         for col in ['Name', 'Committee', 'Preference_1', 'Preference_2']:
             df[col] = df[col].astype(str).str.strip().replace({'nan': None, 'None': None, '': None})
@@ -543,7 +600,7 @@ uploaded_file = st.file_uploader("Upload Ball Guestlist (.xlsx)", type=["xlsx"])
 
 if uploaded_file:
     df = parse_uploaded_excel(uploaded_file)
-    detected_comms = df['Committee'].dropna().unique()
+    detected_comms = [c for c in df['Committee'].dropna().unique() if str(c).strip()]
     comm_txt = f"Detected {len(detected_comms)} committees: *{', '.join(detected_comms)}*" if len(detected_comms) > 0 else "Individual guestlist"
     st.info(f"✅ Processed **{len(df)}** attendees. {comm_txt}")
 
@@ -559,7 +616,7 @@ if uploaded_file:
         n_attendees = len(attendees)
         table_capacity_val = int(table_cap)
         n_tables = (n_attendees + table_capacity_val - 1) // table_capacity_val
-        att_map = {name.lower(): i for i, name in enumerate(attendees)}
+        att_map = {clean_text_simple(name): i for i, name in enumerate(attendees)}
 
         model = cp_model.CpModel()
         x = {}
@@ -575,8 +632,8 @@ if uploaded_file:
         comm_members_map = {}
         if 'Committee' in df.columns:
             for comm_name, comm_df in df.dropna(subset=['Committee']).groupby('Committee'):
-                c_members = [att_map[n.lower()] for n in comm_df['Name'] if n.lower() in att_map]
-                comm_members_map[str(comm_name).lower()] = c_members
+                c_members = [att_map[clean_text_simple(n)] for n in comm_df['Name'] if clean_text_simple(n) in att_map]
+                comm_members_map[clean_text_simple(comm_name)] = c_members
                 if 1 < len(c_members) <= table_capacity_val:
                     for m in c_members[1:]:
                         for t in range(n_tables):
@@ -586,12 +643,12 @@ if uploaded_file:
         for _, row in df.iterrows():
             if pd.notna(row['Committee']):
                 continue
-            i = att_map[row['Name'].lower()]
+            i = att_map[clean_text_simple(row['Name'])]
             for p_col in ['Preference_1', 'Preference_2']:
                 pref_raw = row.get(p_col)
                 if not pref_raw or pd.isna(pref_raw):
                     continue
-                pref_clean = str(pref_raw).strip().lower()
+                pref_clean = clean_text_simple(pref_raw)
 
                 if pref_clean in att_map:
                     j = att_map[pref_clean]
@@ -637,7 +694,7 @@ if uploaded_file:
             
             df['Assigned_Table'] = df['Name'].map(seating)
             df_sorted = df.sort_values(by=['Assigned_Table', 'Committee', 'Name']).reset_index(drop=True)
-            seating_map_lower = {name.lower(): tbl for name, tbl in seating.items()}
+            seating_map_clean = {clean_text_simple(name): tbl for name, tbl in seating.items()}
 
             unfulfilled_rows = []
             total_wishes = 0
@@ -654,10 +711,11 @@ if uploaded_file:
                     if pd.isna(pref_val) or not str(pref_val).strip():
                         continue
                     pref_str = str(pref_val).strip()
+                    pref_c = clean_text_simple(pref_str)
                     total_wishes += 1
 
-                    if pref_str.lower() in seating_map_lower:
-                        target_t = seating_map_lower[pref_str.lower()]
+                    if pref_c in seating_map_clean:
+                        target_t = seating_map_clean[pref_c]
                         if target_t == g_table:
                             fulfilled_wishes += 1
                         else:
@@ -671,7 +729,7 @@ if uploaded_file:
                     else:
                         matched_comm = False
                         for c_name, members in comm_members_map.items():
-                            if c_name in pref_str.lower() or pref_str.lower() in c_name:
+                            if c_name in pref_c or pref_c in c_name:
                                 if members:
                                     first_member_name = attendees[members[0]]
                                     comm_t = seating[first_member_name]
