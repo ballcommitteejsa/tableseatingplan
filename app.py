@@ -1,5 +1,6 @@
 import io
 import os
+import time
 import pandas as pd
 import streamlit as st
 from ortools.sat.python import cp_model
@@ -168,25 +169,63 @@ st.markdown("<hr style='border: none; border-top: 1px solid #E5E7EB; margin-bott
 with st.sidebar:
     render_ball_logo()
     st.markdown("### ⚙️ Gala Parameters")
-    table_cap = st.slider("Seats per Table", min_value=4, max_value=16, value=10)
-    max_time = st.slider("Max Solver Time (sec)", min_value=5, max_value=60, value=25)
+    table_cap = st.number_input("Seats per Table", min_value=2, max_value=30, value=10, step=1)
     st.markdown("---")
-    st.caption("✅ Dynamically detects **ANY committee name** and generates an **unfulfilled wishes audit report**.")
+    st.caption("✅ Supports **Spring Inspiration** & **Ball Committee** as distinct separate committees.")
 
 # ==========================================
 # 4. UNIVERSELE DYNAMISCHE DATA PARSER
 # ==========================================
+COMMITTEE_ALIASES = {
+    "SexK": ["sexk", "sexkreation", "sex kreation", "sex-kreation", "sexie", "sex-ie"],
+    "Nextstep": ["nextstep", "next step", "next-step"],
+    "BEES": ["bees", "bee's"],
+    "Jubel": ["jubel", "jubileum"],
+    "JSA Board": ["jsa board", "board", "styrelsen", "the board"],
+    "Spring Inspiration": ["spring inspiration", "spring inspiration committee", "spring", "si"],
+    "Ball Committee": ["ball committee", "ball", "summer ball", "winter banquet", "summer ball committee", "winter banquet committee"],
+    "Case Academy": ["case academy", "case"],
+    "JSA Masters": ["jsa masters", "masters"],
+    "Sports Committee": ["sports committee", "sports", "sport committee"],
+    "Marketing Committee": ["marketing committee", "marketing", "pr & marketing"],
+    "Education Committee": ["education committee", "education"],
+    "Quality Committee": ["quality committee", "quality"]
+}
+
+def resolve_committee_alias(text):
+    if not text or pd.isna(text):
+        return None
+    raw = str(text).strip().lower()
+    if not raw or raw in ['-', 'none', 'nej', 'no', 'vet inte', 'ingen', 'x']:
+        return None
+    
+    for canonical, variations in COMMITTEE_ALIASES.items():
+        for var in variations:
+            if raw == var or f" {var} " in f" {raw} " or raw.startswith(f"{var} ") or raw.endswith(f" {var}"):
+                return canonical
+    return None
+
 def parse_uploaded_excel(uploaded_file):
     xls = pd.ExcelFile(uploaded_file)
-    target_sheet = None
+    
+    ticket_sheets = []
     for s in xls.sheet_names:
-        if any(w in s.lower() for w in ['ticket', 'attendee', 'guest', '1)', '2)']):
-            target_sheet = s
-            break
-    if not target_sheet:
-        target_sheet = xls.sheet_names[0]
+        s_lower = s.lower().strip()
+        if s_lower in ['översikt', 'sammanställning', 'summary', 'overview']:
+            continue
+        if any(w in s_lower for w in ['ticket', 'attendee', 'guest', 'banquet', '1)', '2)', '3)', '4)', '5)', 'seating']):
+            ticket_sheets.append(s)
+            
+    if not ticket_sheets:
+        ticket_sheets = [xls.sheet_names[-1]]
 
-    df_raw = pd.read_excel(uploaded_file, sheet_name=target_sheet).dropna(how='all').reset_index(drop=True)
+    dfs = []
+    for sheet_name in ticket_sheets:
+        df_sheet = pd.read_excel(uploaded_file, sheet_name=sheet_name).dropna(how='all')
+        if len(df_sheet) > 0:
+            dfs.append(df_sheet)
+
+    df_raw = pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
     is_hitract = 'Name ticket 1 ' in df_raw.columns or 'Förnamn' in df_raw.columns
 
     if is_hitract:
@@ -212,6 +251,9 @@ def parse_uploaded_excel(uploaded_file):
             n1 = str(row.get('Name ticket 1 ', '')).strip() if pd.notna(row.get('Name ticket 1 ')) else f"{fname} {lname}".strip()
             n2 = str(row.get("Second guest's full name (if purchasing a second ticket)", '')).strip() if pd.notna(row.get("Second guest's full name (if purchasing a second ticket)")) else ''
 
+            if not n2 and occ > 1:
+                n2 = f"Guest of {n1}"
+
             c1_raw = str(row.get('Committee table', '')).strip() if pd.notna(row.get('Committee table')) else ''
             p1_1 = str(row.get('Seating preference 1: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 1: Full name (First & Last name) or committee name. ')) else ''
             p1_2 = str(row.get('Seating preference 2: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 2: Full name (First & Last name) or committee name. ')) else ''
@@ -223,21 +265,23 @@ def parse_uploaded_excel(uploaded_file):
             diet2 = str(row.get('Dietary requirements second guest (leave blank if none)', '')).strip() if pd.notna(row.get('Dietary requirements second guest (leave blank if none)')) else ''
 
             if occ == 1 or not n2:
-                comm = c1_raw or (p1_1 if p1_1 and p1_1.lower() not in all_guest_names else None) or (p1_2 if p1_2 and p1_2.lower() not in all_guest_names else None)
+                alias_comm = resolve_committee_alias(c1_raw) or resolve_committee_alias(p1_1) or resolve_committee_alias(p1_2)
+                comm = alias_comm or c1_raw or (p1_1 if p1_1 and p1_1.lower() not in all_guest_names else None) or (p1_2 if p1_2 and p1_2.lower() not in all_guest_names else None)
                 parsed.append({
                     'Name': n1,
                     'Committee': comm if comm else None,
-                    'Preference_1': p1_1 if p1_1 else None,
-                    'Preference_2': p1_2 if p1_2 else None,
+                    'Preference_1': p1_1 if p1_1 and not alias_comm else None,
+                    'Preference_2': p1_2 if p1_2 and not alias_comm else None,
                     'Dietary': diet1
                 })
-            elif occ == 2 and n2:
-                comm = c2_raw or (p2_1 if p2_1 and p2_1.lower() not in all_guest_names else None) or (p2_2 if p2_2 and p2_2.lower() not in all_guest_names else None)
+            else:
+                alias_comm = resolve_committee_alias(c2_raw) or resolve_committee_alias(p2_1) or resolve_committee_alias(p2_2)
+                comm = alias_comm or c2_raw or (p2_1 if p2_1 and p2_1.lower() not in all_guest_names else None) or (p2_2 if p2_2 and p2_2.lower() not in all_guest_names else None)
                 parsed.append({
                     'Name': n2,
                     'Committee': comm if comm else None,
-                    'Preference_1': p2_1 if p2_1 else None,
-                    'Preference_2': p2_2 if p2_2 else None,
+                    'Preference_1': p2_1 if p2_1 and not alias_comm else n1,
+                    'Preference_2': p2_2 if p2_2 and not alias_comm else None,
                     'Dietary': diet2
                 })
         return pd.DataFrame(parsed)
@@ -245,12 +289,20 @@ def parse_uploaded_excel(uploaded_file):
         df = df_raw.iloc[:, 0:4].copy()
         df.columns = ['Name', 'Committee', 'Preference_1', 'Preference_2']
         df['Dietary'] = df_raw.iloc[:, 4].fillna("").astype(str).str.strip() if df_raw.shape[1] > 4 else ""
+        
+        for idx, row in df.iterrows():
+            c_alias = resolve_committee_alias(row['Committee']) or resolve_committee_alias(row['Preference_1']) or resolve_committee_alias(row['Preference_2'])
+            if c_alias:
+                df.at[idx, 'Committee'] = c_alias
+                if resolve_committee_alias(row['Preference_1']): df.at[idx, 'Preference_1'] = None
+                if resolve_committee_alias(row['Preference_2']): df.at[idx, 'Preference_2'] = None
+
         for col in ['Name', 'Committee', 'Preference_1', 'Preference_2']:
             df[col] = df[col].astype(str).str.strip().replace({'nan': None, 'None': None, '': None})
         return df.dropna(subset=['Name']).reset_index(drop=True)
 
 # ==========================================
-# 5. GENERATE 2-PAGE A4 PDF (ENLARGED TYPOGRAPHY)
+# 5. GENERATE 2-PAGE A4 PDF
 # ==========================================
 def generate_2page_visual_pdf(df_sorted, table_cap):
     pdf_buffer = io.BytesIO()
@@ -492,159 +544,175 @@ uploaded_file = st.file_uploader("Upload Ball Guestlist (.xlsx)", type=["xlsx"])
 if uploaded_file:
     df = parse_uploaded_excel(uploaded_file)
     detected_comms = df['Committee'].dropna().unique()
-    st.info(f"✅ Processed **{len(df)}** attendees. Detected {len(detected_comms)} committees: *{', '.join(detected_comms)}*")
+    comm_txt = f"Detected {len(detected_comms)} committees: *{', '.join(detected_comms)}*" if len(detected_comms) > 0 else "Individual guestlist"
+    st.info(f"✅ Processed **{len(df)}** attendees. {comm_txt}")
 
     if st.button("Generate Seating Plan"):
-        with st.spinner("Optimizing table allocations..."):
-            attendees = df['Name'].tolist()
-            n_attendees = len(attendees)
-            n_tables = (n_attendees + table_cap - 1) // table_cap
-            att_map = {name.lower(): i for i, name in enumerate(attendees)}
+        progress_placeholder = st.empty()
+        progress_bar = progress_placeholder.progress(0, text="Initializing optimization engine... 0%")
+        
+        for pct in range(5, 45, 5):
+            time.sleep(0.04)
+            progress_bar.progress(pct, text=f"Analyzing committee constraints & seating wishes... {pct}%")
 
-            model = cp_model.CpModel()
-            x = {}
+        attendees = df['Name'].tolist()
+        n_attendees = len(attendees)
+        table_capacity_val = int(table_cap)
+        n_tables = (n_attendees + table_capacity_val - 1) // table_capacity_val
+        att_map = {name.lower(): i for i, name in enumerate(attendees)}
+
+        model = cp_model.CpModel()
+        x = {}
+        for i in range(n_attendees):
+            for t in range(n_tables):
+                x[i, t] = model.NewBoolVar(f'x_{i}_{t}')
+
+            model.Add(sum(x[i, t] for t in range(n_tables)) == 1)
+
+        for t in range(n_tables):
+            model.Add(sum(x[i, t] for i in range(n_attendees)) <= table_capacity_val)
+
+        comm_members_map = {}
+        if 'Committee' in df.columns:
+            for comm_name, comm_df in df.dropna(subset=['Committee']).groupby('Committee'):
+                c_members = [att_map[n.lower()] for n in comm_df['Name'] if n.lower() in att_map]
+                comm_members_map[str(comm_name).lower()] = c_members
+                if 1 < len(c_members) <= table_capacity_val:
+                    for m in c_members[1:]:
+                        for t in range(n_tables):
+                            model.Add(x[m, t] == x[c_members[0], t])
+
+        score_terms = []
+        for _, row in df.iterrows():
+            if pd.notna(row['Committee']):
+                continue
+            i = att_map[row['Name'].lower()]
+            for p_col in ['Preference_1', 'Preference_2']:
+                pref_raw = row.get(p_col)
+                if not pref_raw or pd.isna(pref_raw):
+                    continue
+                pref_clean = str(pref_raw).strip().lower()
+
+                if pref_clean in att_map:
+                    j = att_map[pref_clean]
+                    if i != j:
+                        for t in range(n_tables):
+                            together = model.NewBoolVar(f'p_pers_{i}_{j}_{t}')
+                            model.Add(x[i, t] + x[j, t] == 2).OnlyEnforceIf(together)
+                            model.Add(x[i, t] + x[j, t] < 2).OnlyEnforceIf(together.Not())
+                            score_terms.append(together * 6)
+
+                for c_name, members in comm_members_map.items():
+                    if c_name in pref_clean or pref_clean in c_name:
+                        for target_m in members:
+                            for t in range(n_tables):
+                                together_c = model.NewBoolVar(f'p_comm_{i}_{target_m}_{t}')
+                                model.Add(x[i, t] + x[target_m, t] == 2).OnlyEnforceIf(together_c)
+                                model.Add(x[i, t] + x[target_m, t] < 2).OnlyEnforceIf(together_c.Not())
+                                score_terms.append(together_c * 3)
+
+        model.Maximize(sum(score_terms))
+
+        for pct in range(45, 80, 5):
+            time.sleep(0.03)
+            progress_bar.progress(pct, text=f"Solving table arrangement matrix... {pct}%")
+
+        solver = cp_model.CpSolver()
+        solver.parameters.max_time_in_seconds = 10.0
+        status = solver.Solve(model)
+
+        for pct in range(80, 101, 5):
+            time.sleep(0.02)
+            progress_bar.progress(pct, text=f"Finalizing report & layouts... {pct}%")
+            
+        time.sleep(0.15)
+        progress_placeholder.empty()
+
+        if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
+            seating = {}
             for i in range(n_attendees):
                 for t in range(n_tables):
-                    x[i, t] = model.NewBoolVar(f'x_{i}_{t}')
+                    if solver.Value(x[i, t]) == 1:
+                        seating[attendees[i]] = t + 1
+            
+            df['Assigned_Table'] = df['Name'].map(seating)
+            df_sorted = df.sort_values(by=['Assigned_Table', 'Committee', 'Name']).reset_index(drop=True)
+            seating_map_lower = {name.lower(): tbl for name, tbl in seating.items()}
 
-            for i in range(n_attendees):
-                model.Add(sum(x[i, t] for t in range(n_tables)) == 1)
+            unfulfilled_rows = []
+            total_wishes = 0
+            fulfilled_wishes = 0
 
-            for t in range(n_tables):
-                model.Add(sum(x[i, t] for i in range(n_attendees)) <= table_cap)
-
-            comm_members_map = {}
-            if 'Committee' in df.columns:
-                for comm_name, comm_df in df.dropna(subset=['Committee']).groupby('Committee'):
-                    c_members = [att_map[n.lower()] for n in comm_df['Name'] if n.lower() in att_map]
-                    comm_members_map[str(comm_name).lower()] = c_members
-                    if 1 < len(c_members) <= table_cap:
-                        for m in c_members[1:]:
-                            for t in range(n_tables):
-                                model.Add(x[m, t] == x[c_members[0], t])
-
-            score_terms = []
-            for _, row in df.iterrows():
-                if pd.notna(row['Committee']):
+            for _, r in df.iterrows():
+                if pd.notna(r['Committee']):
                     continue
-                i = att_map[row['Name'].lower()]
+                g_name = r['Name']
+                g_table = r['Assigned_Table']
+
                 for p_col in ['Preference_1', 'Preference_2']:
-                    pref_raw = row.get(p_col)
-                    if not pref_raw or pd.isna(pref_raw):
+                    pref_val = r.get(p_col)
+                    if pd.isna(pref_val) or not str(pref_val).strip():
                         continue
-                    pref_clean = str(pref_raw).strip().lower()
+                    pref_str = str(pref_val).strip()
+                    total_wishes += 1
 
-                    if pref_clean in att_map:
-                        j = att_map[pref_clean]
-                        if i != j:
-                            for t in range(n_tables):
-                                together = model.NewBoolVar(f'p_pers_{i}_{j}_{t}')
-                                model.Add(x[i, t] + x[j, t] == 2).OnlyEnforceIf(together)
-                                model.Add(x[i, t] + x[j, t] < 2).OnlyEnforceIf(together.Not())
-                                score_terms.append(together * 6)
-
-                    for c_name, members in comm_members_map.items():
-                        if c_name in pref_clean or pref_clean in c_name:
-                            for target_m in members:
-                                for t in range(n_tables):
-                                    together_c = model.NewBoolVar(f'p_comm_{i}_{target_m}_{t}')
-                                    model.Add(x[i, t] + x[target_m, t] == 2).OnlyEnforceIf(together_c)
-                                    model.Add(x[i, t] + x[target_m, t] < 2).OnlyEnforceIf(together_c.Not())
-                                    score_terms.append(together_c * 3)
-
-            model.Maximize(sum(score_terms))
-
-            solver = cp_model.CpSolver()
-            solver.parameters.max_time_in_seconds = float(max_time)
-            status = solver.Solve(model)
-
-            if status in (cp_model.OPTIMAL, cp_model.FEASIBLE):
-                seating = {}
-                for i in range(n_attendees):
-                    for t in range(n_tables):
-                        if solver.Value(x[i, t]) == 1:
-                            seating[attendees[i]] = t + 1
-                
-                df['Assigned_Table'] = df['Name'].map(seating)
-                df_sorted = df.sort_values(by=['Assigned_Table', 'Committee', 'Name']).reset_index(drop=True)
-                seating_map_lower = {name.lower(): tbl for name, tbl in seating.items()}
-
-                # Audit Unfulfilled Wishes
-                unfulfilled_rows = []
-                total_wishes = 0
-                fulfilled_wishes = 0
-
-                for _, r in df.iterrows():
-                    if pd.notna(r['Committee']):
-                        continue
-                    g_name = r['Name']
-                    g_table = r['Assigned_Table']
-
-                    for p_col in ['Preference_1', 'Preference_2']:
-                        pref_val = r.get(p_col)
-                        if pd.isna(pref_val) or not str(pref_val).strip():
-                            continue
-                        pref_str = str(pref_val).strip()
-                        total_wishes += 1
-
-                        if pref_str.lower() in seating_map_lower:
-                            target_t = seating_map_lower[pref_str.lower()]
-                            if target_t == g_table:
-                                fulfilled_wishes += 1
-                            else:
-                                unfulfilled_rows.append({
-                                    'Guest Name': g_name,
-                                    'Assigned Table': f"Table {g_table:02d}",
-                                    'Requested Wish': pref_str,
-                                    'Requested Guest Table': f"Table {target_t:02d}",
-                                    'Status / Reason': 'Different table due to table capacity limits'
-                                })
+                    if pref_str.lower() in seating_map_lower:
+                        target_t = seating_map_lower[pref_str.lower()]
+                        if target_t == g_table:
+                            fulfilled_wishes += 1
                         else:
-                            matched_comm = False
-                            for c_name, members in comm_members_map.items():
-                                if c_name in pref_str.lower() or pref_str.lower() in c_name:
-                                    if members:
-                                        first_member_name = attendees[members[0]]
-                                        comm_t = seating[first_member_name]
-                                        if comm_t == g_table:
-                                            fulfilled_wishes += 1
-                                            matched_comm = True
-                                            break
-                                        else:
-                                            unfulfilled_rows.append({
-                                                'Guest Name': g_name,
-                                                'Assigned Table': f"Table {g_table:02d}",
-                                                'Requested Wish': f"[{pref_str}] Committee Table",
-                                                'Requested Guest Table': f"Table {comm_t:02d}",
-                                                'Status / Reason': 'Committee table reached capacity'
-                                            })
-                                            matched_comm = True
-                                            break
-                            if not matched_comm:
-                                unfulfilled_rows.append({
-                                    'Guest Name': g_name,
-                                    'Assigned Table': f"Table {g_table:02d}",
-                                    'Requested Wish': pref_str,
-                                    'Requested Guest Table': 'Not Found',
-                                    'Status / Reason': 'Name / Committee not registered in guestlist'
-                                })
+                            unfulfilled_rows.append({
+                                'Guest Name': g_name,
+                                'Assigned Table': f"Table {g_table:02d}",
+                                'Requested Wish': pref_str,
+                                'Requested Guest Table': f"Table {target_t:02d}",
+                                'Status / Reason': 'Different table due to table capacity limits'
+                            })
+                    else:
+                        matched_comm = False
+                        for c_name, members in comm_members_map.items():
+                            if c_name in pref_str.lower() or pref_str.lower() in c_name:
+                                if members:
+                                    first_member_name = attendees[members[0]]
+                                    comm_t = seating[first_member_name]
+                                    if comm_t == g_table:
+                                        fulfilled_wishes += 1
+                                        matched_comm = True
+                                        break
+                                    else:
+                                        unfulfilled_rows.append({
+                                            'Guest Name': g_name,
+                                            'Assigned Table': f"Table {g_table:02d}",
+                                            'Requested Wish': f"[{pref_str}] Committee Table",
+                                            'Requested Guest Table': f"Table {comm_t:02d}",
+                                            'Status / Reason': 'Committee table reached capacity'
+                                        })
+                                        matched_comm = True
+                                        break
+                        if not matched_comm:
+                            unfulfilled_rows.append({
+                                'Guest Name': g_name,
+                                'Assigned Table': f"Table {g_table:02d}",
+                                'Requested Wish': pref_str,
+                                'Requested Guest Table': 'Not Found',
+                                'Status / Reason': 'Name / Committee not registered in guestlist'
+                            })
 
-                unfulfilled_df = pd.DataFrame(unfulfilled_rows)
-                satisfaction_rate = (fulfilled_wishes / total_wishes * 100) if total_wishes > 0 else 100.0
+            unfulfilled_df = pd.DataFrame(unfulfilled_rows)
+            satisfaction_rate = (fulfilled_wishes / total_wishes * 100) if total_wishes > 0 else 100.0
 
-                # Store into session_state
-                st.session_state['seating_computed'] = True
-                st.session_state['df_sorted'] = df_sorted
-                st.session_state['unfulfilled_df'] = unfulfilled_df
-                st.session_state['fulfilled_wishes'] = fulfilled_wishes
-                st.session_state['total_wishes'] = total_wishes
-                st.session_state['satisfaction_rate'] = satisfaction_rate
-                st.session_state['table_cap'] = table_cap
-                st.session_state['pdf_bytes'] = generate_2page_visual_pdf(df_sorted, table_cap)
-                st.session_state['excel_bytes'] = build_printable_excel_workbook(df_sorted, unfulfilled_df)
-            else:
-                st.session_state['seating_computed'] = False
-                st.error("Could not find a feasible arrangement. Check group sizes against table capacity.")
+            st.session_state['seating_computed'] = True
+            st.session_state['df_sorted'] = df_sorted
+            st.session_state['unfulfilled_df'] = unfulfilled_df
+            st.session_state['fulfilled_wishes'] = fulfilled_wishes
+            st.session_state['total_wishes'] = total_wishes
+            st.session_state['satisfaction_rate'] = satisfaction_rate
+            st.session_state['table_cap'] = table_capacity_val
+            st.session_state['pdf_bytes'] = generate_2page_visual_pdf(df_sorted, table_capacity_val)
+            st.session_state['excel_bytes'] = build_printable_excel_workbook(df_sorted, unfulfilled_df)
+        else:
+            st.session_state['seating_computed'] = False
+            st.error("Could not find a feasible arrangement. Check group sizes against table capacity.")
 
 # ==========================================
 # 8. RENDER RESULTS (PERSISTENT VIA SESSION STATE)
@@ -655,7 +723,7 @@ if st.session_state.get('seating_computed', False):
     fulfilled_wishes = st.session_state['fulfilled_wishes']
     total_wishes = st.session_state['total_wishes']
     satisfaction_rate = st.session_state['satisfaction_rate']
-    table_cap = st.session_state['table_cap']
+    table_cap_val = st.session_state['table_cap']
     pdf_bytes = st.session_state['pdf_bytes']
     excel_bytes = st.session_state['excel_bytes']
 
@@ -711,7 +779,7 @@ if st.session_state.get('seating_computed', False):
             <div class="table-card">
                 <div class="table-header">
                     <span>TABLE {tbl_num:02d}</span>
-                    <span style="font-size: 0.85rem; font-weight: normal; color: #6B7280;">{len(group)}/{table_cap} Guests</span>
+                    <span style="font-size: 0.85rem; font-weight: normal; color: #6B7280;">{len(group)}/{table_cap_val} Guests</span>
                 </div>
             """, unsafe_allow_html=True)
             for seat_idx, (_, r) in enumerate(group.iterrows(), 1):
