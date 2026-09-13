@@ -6,6 +6,7 @@ from ortools.sat.python import cp_model
 import openpyxl
 from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
 from openpyxl.utils import get_column_letter
+from PIL import Image
 
 # PDF Generation imports
 from reportlab.lib.pagesizes import A4, landscape
@@ -14,15 +15,25 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 # ==========================================
-# 1. LUXE GALA HUISSTIJL & THEMA
+# 1. PAGE CONFIGURATION & LOGO FAVICON
 # ==========================================
+def get_page_icon():
+    for name in ["ball_logo.png", "ball logo high res.jpg", "input_file_0.png"]:
+        if os.path.exists(name):
+            try:
+                return Image.open(name)
+            except Exception:
+                pass
+    return "🍾"
+
 st.set_page_config(
     page_title="Ball Committee Seating Engine",
-    page_icon="🍾",
+    page_icon=get_page_icon(),
     layout="wide"
 )
 
-st.markdown("""
+# Custom Styling (wrapped cleanly to avoid syntax formatting errors)
+custom_css = """
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@500;700&family=Montserrat:wght@300;400;600&display=swap');
 
@@ -129,7 +140,8 @@ st.markdown("""
         box-shadow: 0 2px 4px rgba(0,0,0,0.02);
     }
 </style>
-""", unsafe_allow_html=True)
+"""
+st.markdown(custom_css, unsafe_allow_html=True)
 
 # ==========================================
 # 2. LOGO & HEADER
@@ -139,6 +151,8 @@ def render_ball_logo():
         st.image("ball_logo.png", use_container_width=True)
     elif os.path.exists("ball logo high res.jpg"):
         st.image("ball logo high res.jpg", use_container_width=True)
+    elif os.path.exists("input_file_0.png"):
+        st.image("input_file_0.png", use_container_width=True)
     else:
         st.markdown("<h2 class='gala-title'>BALL COMMITTEE</h2>", unsafe_allow_html=True)
 
@@ -564,7 +578,6 @@ if uploaded_file:
                 fulfilled_wishes = 0
 
                 for _, r in df.iterrows():
-                    # If person is seated with a locked committee, their individual wishes aren't calculated
                     if pd.notna(r['Committee']):
                         continue
                     
@@ -579,7 +592,6 @@ if uploaded_file:
                         pref_str = str(pref_val).strip()
                         total_wishes += 1
 
-                        # Case A: Preference is a specific attendee
                         if pref_str.lower() in seating_map_lower:
                             target_t = seating_map_lower[pref_str.lower()]
                             if target_t == g_table:
@@ -592,7 +604,6 @@ if uploaded_file:
                                     'Requested Guest Table': f"Table {target_t:02d}",
                                     'Status / Reason': 'Different table due to table capacity limits'
                                 })
-                        # Case B: Preference is a committee name
                         else:
                             matched_comm = False
                             for c_name, members in comm_members_map.items():
