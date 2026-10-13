@@ -10,7 +10,7 @@ from openpyxl.utils import get_column_letter
 from PIL import Image
 
 # ==========================================
-# 1. PAGINA CONFIGURATIE & FAVICON
+# 1. PAGINA CONFIGURATIE & THEMA
 # ==========================================
 def get_page_icon():
     for name in ["ball_logo.png", "ball logo high res.jpg", "input_file_0.png"]:
@@ -77,4 +77,56 @@ NON_DIETARY = {'nej', 'no', 'none', 'nothing', 'inga', 'inget', 'nope', '-', 'x'
 
 def clean_dietary_entry(d):
     if pd.isna(d): return ""
-    s = str(d).strip
+    s = str(d).strip()
+    if s.lower() in NON_DIETARY or s.lower().startswith('no allerg'):
+        return ""
+    return s
+
+def resolve_committee_alias(text):
+    if not text or pd.isna(text): return None
+    raw = str(text).strip().lower()
+    for canonical, variations in COMMITTEE_ALIASES.items():
+        for var in variations:
+            if raw == var or f" {var} " in f" {raw} ":
+                return canonical
+    return None
+
+def parse_uploaded_excel(uploaded_file):
+    xls = pd.ExcelFile(uploaded_file)
+    target_sheet = None
+    for s in xls.sheet_names:
+        if any(w in s.lower() for w in ['ticket', 'attendee', 'guest', 'banquet', '1)', '2)']):
+            target_sheet = s
+            break
+    if not target_sheet:
+        target_sheet = xls.sheet_names[0]
+
+    df_raw = pd.read_excel(uploaded_file, sheet_name=target_sheet).dropna(how='all').reset_index(drop=True)
+    is_hitract = 'Name ticket 1 ' in df_raw.columns or 'Förnamn' in df_raw.columns
+
+    attendees = []
+    
+    if is_hitract:
+        buyer_counts = {}
+        for idx, row in df_raw.iterrows():
+            fname = str(row.get('Förnamn', '')).strip() if pd.notna(row.get('Förnamn')) else ''
+            lname = str(row.get('Efternamn', '')).strip() if pd.notna(row.get('Efternamn')) else ''
+            sdate = str(row.get('Försäljnignsdatum', '')).strip() if pd.notna(row.get('Försäljnignsdatum')) else ''
+            b_key = f"{fname}_{lname}_{sdate}"
+            occ = buyer_counts.get(b_key, 0) + 1
+            buyer_counts[b_key] = occ
+
+            n1 = str(row.get('Name ticket 1 ', '')).strip() if pd.notna(row.get('Name ticket 1 ')) else f"{fname} {lname}".strip()
+            n2 = str(row.get("Second guest's full name (if purchasing a second ticket)", '')).strip() if pd.notna(row.get("Second guest's full name (if purchasing a second ticket)")) else ''
+            if not n2 and occ > 1:
+                n2 = f"Guest of {n1}"
+
+            c1 = str(row.get('Committee table', '')).strip() if pd.notna(row.get('Committee table')) else ''
+            p1_1 = str(row.get('Seating preference 1: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 1: Full name (First & Last name) or committee name. ')) else ''
+            p1_2 = str(row.get('Seating preference 2: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 2: Full name (First & Last name) or committee name. ')) else ''
+            diet1 = clean_dietary_entry(row.get('Dietary requirements (leave blank if none)'))
+
+            c2 = str(row.get('Committee table.1', '')).strip() if pd.notna(row.get('Committee table.1')) else ''
+            p2_1 = str(row.get('Seating preference 1 second guest: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 1 second guest: Full name (First & Last name) or committee name. ')) else ''
+            p2_2 = str(row.get('Seating preference 2 second guest: Full name (First & Last name) or committee name. ', '')).strip() if pd.notna(row.get('Seating preference 2 second guest: Full name (First & Last name) or committee name. ')) else ''
+            diet2 = clean_diet
