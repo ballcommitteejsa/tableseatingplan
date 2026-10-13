@@ -9,7 +9,7 @@ import openpyxl
 from PIL import Image
 
 # ==========================================
-# 1. PAGINA CONFIGURATIE & HUISSTIJL
+# 1. PAGE CONFIGURATION & BRANDING
 # ==========================================
 def get_page_icon():
     for name in ["ball_logo.png", "ball logo high res.jpg", "input_file_0.png"]:
@@ -70,7 +70,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logo weergave
 def render_logo():
     for logo_path in ["ball_logo.png", "ball logo high res.jpg", "input_file_0.png"]:
         if os.path.exists(logo_path):
@@ -85,7 +84,7 @@ with col_center:
 st.markdown("<p style='text-align: center; letter-spacing: 2px; color: #6B7280; text-transform: uppercase; font-size: 0.8rem; margin-top: -6px;'>Universal 20-Table Interactive Seating Studio</p>", unsafe_allow_html=True)
 
 # ==========================================
-# 2. INTELLIGENTE PARSER & ALIAS NORMALISATIE
+# 2. PARSER & COMMITTEE ALIAS RESOLUTION
 # ==========================================
 COMMITTEE_ALIASES = {
     "SexK": ["sexk", "sexkreation", "sex kreation", "sex-kreation", "sexie", "sex-ie"],
@@ -270,21 +269,21 @@ def parse_hitract_excel_dataset(file_obj):
     return attendees
 
 # ==========================================
-# 3. UPLOAD & BEDIENINGSBALK
+# 3. CONTROL PANEL & UPLOADER
 # ==========================================
 st.markdown("<div class='upload-card'>", unsafe_allow_html=True)
 col_file, col_seats, col_action = st.columns([3, 1, 1])
 
 with col_file:
     uploaded_file = st.file_uploader(
-        "Kies je Hitract Excel bestand (.xlsx)",
+        "Choose your Hitract Excel file (.xlsx)",
         type=["xlsx"],
         key="uploader_input_field"
     )
 
 with col_seats:
     table_max_seats = st.number_input(
-        "Stoelen per tafel",
+        "Seats per table",
         min_value=4,
         max_value=25,
         value=10,
@@ -294,16 +293,313 @@ with col_seats:
 with col_action:
     st.write("")
     st.write("")
-    btn_start = st.button("🚀 Start / Laad Lijst", use_container_width=True)
+    btn_start = st.button("🚀 Load / Refresh List", use_container_width=True)
 
 st.markdown("</div>", unsafe_allow_html=True)
 
 if btn_start or (uploaded_file is not None and 'active_guestlist' not in st.session_state):
     if uploaded_file is not None:
-        with st.spinner("Gastenlijst analyseren en duo-tickets splitsen..."):
+        with st.spinner("Processing guestlist and splitting dual-tickets..."):
             loaded_guests = parse_hitract_excel_dataset(uploaded_file)
             st.session_state['active_guestlist'] = loaded_guests
             st.session_state['loaded_file_name'] = uploaded_file.name
-            st.success(f"🎉 **{len(loaded_guests)}** gasten succesvol ingeladen uit `{uploaded_file.name}`!")
+            st.success(f"🎉 Successfully loaded **{len(loaded_guests)}** guests from `{uploaded_file.name}`!")
     else:
-        st.warning("⚠️ Upload eerst een Excel-bestand voordat je op Start klikt.")
+        st.warning("⚠️ Please upload an Excel file first before clicking Load.")
+
+parsed_guests = st.session_state.get('active_guestlist', [])
+guests_json_payload = json.dumps(parsed_guests)
+
+# ==========================================
+# 4. INTERACTIVE 20-TABLE DRAG & DROP BOARD
+# ==========================================
+dnd_html_template = """
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<style>
+    * { box-sizing: border-box; }
+    body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        background-color: #F8F9FA;
+        margin: 0;
+        padding: 6px;
+        user-select: none;
+    }
+    
+    .top-action-bar {
+        background: #111111;
+        color: #FFFFFF;
+        padding: 10px 14px;
+        border-radius: 6px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 12px;
+        flex-wrap: wrap;
+        gap: 10px;
+    }
+    .group-btn {
+        background: #2563EB;
+        color: #FFFFFF;
+        border: none;
+        padding: 6px 14px;
+        border-radius: 4px;
+        font-weight: 600;
+        cursor: pointer;
+        font-size: 0.85rem;
+        transition: background 0.2s;
+    }
+    .group-btn:hover { background: #1D4ED8; }
+    .group-btn:disabled { background: #4B5563; cursor: not-allowed; opacity: 0.6; }
+
+    .action-btn {
+        background: #374151;
+        color: #FFFFFF;
+        border: none;
+        padding: 6px 11px;
+        border-radius: 4px;
+        font-size: 0.80rem;
+        font-weight: 600;
+        cursor: pointer;
+        margin-left: 6px;
+        transition: background 0.2s;
+    }
+    .action-btn:hover { background: #4B5563; }
+    
+    .excel-btn {
+        background: #15803D !important;
+    }
+    .excel-btn:hover {
+        background: #166534 !important;
+    }
+
+    .pdf-btn {
+        background: #059669 !important;
+    }
+    .pdf-btn:hover {
+        background: #047857 !important;
+    }
+
+    .add-guest-card {
+        background: #FFFFFF;
+        border: 1px solid #D1D5DB;
+        border-radius: 6px;
+        padding: 8px 12px;
+        margin-bottom: 10px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 0.82rem;
+    }
+    .add-guest-card input {
+        padding: 5px 8px;
+        border: 1px solid #D1D5DB;
+        border-radius: 4px;
+        font-size: 0.8rem;
+    }
+
+    details.pool-tray {
+        background: #FFFFFF;
+        border: 1px solid #D1D5DB;
+        border-radius: 6px;
+        margin-bottom: 14px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.03);
+    }
+    details.pool-tray summary {
+        padding: 10px 14px;
+        font-weight: 700;
+        cursor: pointer;
+        background: #F3F4F6;
+        color: #111111;
+        border-radius: 6px;
+        display: flex;
+        justify-content: space-between;
+    }
+    .pool-cards-container {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        padding: 10px;
+        max-height: 240px;
+        overflow-y: auto;
+        background: #F9FAFB;
+    }
+
+    .tables-grid-20 {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 12px;
+        width: 100%;
+    }
+    .table-column {
+        background: #FFFFFF;
+        border: 1px solid #D1D5DB;
+        border-top: 3px solid #111111;
+        border-radius: 4px;
+        display: flex;
+        flex-direction: column;
+        min-height: 320px;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+        page-break-inside: avoid;
+        break-inside: avoid;
+    }
+    .table-header {
+        padding: 6px 8px;
+        background: #F3F4F6;
+        border-bottom: 1px solid #E5E7EB;
+        font-size: 0.78rem;
+        font-weight: 700;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .table-name-input {
+        background: transparent;
+        border: 1px dashed transparent;
+        font-weight: 700;
+        font-size: 0.78rem;
+        color: #111111;
+        cursor: pointer;
+        padding: 1px 3px;
+        border-radius: 3px;
+        width: 75%;
+    }
+    .table-name-input:hover {
+        border-color: #9CA3AF;
+        background: #FFFFFF;
+    }
+    .table-name-input:focus {
+        border-color: #2563EB;
+        background: #FFFFFF;
+        outline: none;
+    }
+
+    .table-dropzone {
+        flex: 1;
+        padding: 6px;
+        min-height: 270px;
+        display: flex;
+        flex-direction: column;
+        gap: 5px;
+    }
+    .table-dropzone.drag-over {
+        background-color: #ECFDF5;
+        border: 2px dashed #059669;
+    }
+
+    .guest-item {
+        background: #FFFFFF;
+        border: 1px solid #D1D5DB;
+        border-left: 3px solid #2563EB;
+        border-radius: 3px;
+        padding: 5px 6px;
+        cursor: grab;
+        display: flex;
+        flex-direction: column;
+        transition: all 0.15s;
+    }
+    .guest-item:hover {
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        border-color: #111111;
+    }
+    .guest-item.is-selected {
+        background: #EFF6FF !important;
+        border-color: #2563EB !important;
+    }
+    .guest-top-row {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+    .guest-name {
+        font-weight: 600;
+        font-size: 0.78rem;
+        color: #111111;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex: 1;
+    }
+    .pref-line {
+        font-size: 0.68rem;
+        color: #4B5563;
+        margin-top: 2px;
+        line-height: 1.15;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    .tag-diet {
+        font-size: 0.62rem;
+        font-weight: bold;
+        color: #B45309;
+        background: #FEF3C7;
+        padding: 1px 3px;
+        border-radius: 2px;
+        margin-top: 2px;
+        display: inline-block;
+        width: fit-content;
+    }
+    .tag-comm {
+        font-size: 0.62rem;
+        font-weight: bold;
+        color: #1E3A8A;
+        background: #DBEAFE;
+        padding: 1px 3px;
+        border-radius: 2px;
+    }
+
+    .bundle-item {
+        background: #FEF9C3;
+        border: 1.5px solid #CA8A04;
+        border-radius: 4px;
+        padding: 5px;
+        cursor: grab;
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .bundle-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        font-size: 0.72rem;
+        font-weight: 700;
+        color: #854D0E;
+        border-bottom: 1px dashed #EAB308;
+        padding-bottom: 3px;
+    }
+    .ungroup-btn {
+        background: #FFFFFF;
+        border: 1px solid #CA8A04;
+        color: #854D0E;
+        border-radius: 3px;
+        padding: 1px 5px;
+        font-size: 0.65rem;
+        cursor: pointer;
+        font-weight: bold;
+    }
+    .ungroup-btn:hover { background: #FEF08A; }
+    
+    .status-badge {
+        font-size: 0.75rem;
+        color: #10B981;
+        margin-right: 12px;
+        display: inline-flex;
+        align-items: center;
+    }
+</style>
+</head>
+<body>
+
+<script id="guests-raw-data" type="application/json">
+__GUESTS_JSON__
+</script>
+
+<!-- TOP CONTROL BAR -->
+<div class="top-action-bar">
+    <div style="display: flex; align-items: center;">
+        <span style="font-
