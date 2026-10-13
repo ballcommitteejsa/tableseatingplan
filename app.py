@@ -34,7 +34,6 @@ st.markdown("""
     .stApp { background-color: #F8F9FA; font-family: 'Montserrat', sans-serif; }
     h1, h2, h3, .gala-title { font-family: 'Cinzel', serif !important; letter-spacing: 2px; color: #111111; text-align: center; }
     
-    /* Grote, duidelijke uploadbox */
     .stFileUploader {
         background: #FFFFFF;
         padding: 15px;
@@ -45,7 +44,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logo weergave bovenaan
 def render_ball_logo():
     if os.path.exists("ball_logo.png"):
         st.image("ball_logo.png", width=320)
@@ -131,7 +129,7 @@ def split_combined_names(text):
     if not text or pd.isna(text): return "", ""
     s = str(text).strip()
     if not s or s.lower() in ['-', 'none', 'nej', 'no', 'x']: return "", ""
-    parts = re.split(r',|\boch\b|\band\b|&|/|\+|\n', s, flags=re.IGNORECASE)
+    parts = re.split(r'[,&/+\n]|\s+och\s+|\s+and\s+', s, flags=re.IGNORECASE)
     parts = [p.strip() for p in parts if p.strip()]
     if len(parts) >= 2:
         return parts[0], parts[1]
@@ -196,7 +194,6 @@ def parse_any_guestlist_excel(file_bytes_or_buffer):
     col_diet2 = find_col('dietary requirements second guest', 'your friends allergies')
     col_comm2 = find_col('committee table.1')
 
-    # Schone 5-koloms data check
     if len(df_raw.columns) <= 5 and not col_fname and 'name' in cols:
         name_c = find_col('name')
         comm_c = find_col('committee')
@@ -205,55 +202,4 @@ def parse_any_guestlist_excel(file_bytes_or_buffer):
         diet_c = find_col('dietary', 'diet')
         attendees = []
         for idx, row in df_raw.iterrows():
-            nm = str(row.get(name_c, '')).strip()
-            if nm and nm.lower() != 'nan':
-                attendees.append({
-                    'id': f"g_{idx}",
-                    'name': nm,
-                    'committee': str(row.get(comm_c, '')).strip() if comm_c and pd.notna(row.get(comm_c)) else "",
-                    'pref1': str(row.get(p1_c, '')).strip() if p1_c and pd.notna(row.get(p1_c)) else "",
-                    'pref2': str(row.get(p2_c, '')).strip() if p2_c and pd.notna(row.get(p2_c)) else "",
-                    'dietary': clean_diet_val(row.get(diet_c, '')) if diet_c else ""
-                })
-        return attendees
-
-    buyer_counts = {}
-    attendees = []
-    for idx, row in df_raw.iterrows():
-        fn = str(row.get(col_fname, '')).strip() if col_fname and pd.notna(row.get(col_fname)) else ''
-        ln = str(row.get(col_lname, '')).strip() if col_lname and pd.notna(row.get(col_lname)) else ''
-        sdate = str(row.get(col_date, '')).strip() if col_date and pd.notna(row.get(col_date)) else ''
-        b_key = f"{fn}_{ln}_{sdate}"
-        occ = buyer_counts.get(b_key, 0) + 1
-        buyer_counts[b_key] = occ
-
-        n1_val = str(row.get(col_name1, '')).strip() if col_name1 and pd.notna(row.get(col_name1)) else ''
-        n1 = n1_val if n1_val and n1_val.lower() != 'nan' else f"{fn} {ln}".strip()
-        if not n1:
-            continue
-
-        n2_val = str(row.get(col_friend, '')).strip() if col_friend and pd.notna(row.get(col_friend)) else ''
-        n2 = n2_val if n2_val and n2_val.lower() not in NON_DIETARY and len(n2_val) > 2 else ''
-        if not n2 and occ > 1:
-            n2 = f"Guest of {n1}"
-
-        # Voorkeuren Gast 1
-        raw_p1 = row.get(col_pref1, '') if col_pref1 else ''
-        p1_a, p1_b = split_combined_names(raw_p1)
-        if col_pref2 and pd.notna(row.get(col_pref2)):
-            raw_p2 = str(row.get(col_pref2)).strip()
-            if raw_p2 and raw_p2.lower() not in NON_DIETARY:
-                p1_b = raw_p2
-
-        diet1 = clean_diet_val(row.get(col_diet1, '')) if col_diet1 else ''
-        comm1 = resolve_committee_alias(row.get(col_comm1, '')) if col_comm1 else resolve_committee_alias(raw_p1)
-
-        # Voorkeuren Gast 2
-        raw_p2_1 = row.get(col_pref2_1, '') if col_pref2_1 else ''
-        p2_a, p2_b = split_combined_names(raw_p2_1)
-        if col_pref2_2 and pd.notna(row.get(col_pref2_2)):
-            raw_p2_2 = str(row.get(col_pref2_2)).strip()
-            if raw_p2_2 and raw_p2_2.lower() not in NON_DIETARY:
-                p2_b = raw_p2_2
-
-        diet2 = clean_diet_val(row.get(col_diet2, '')) if col_diet
+            nm = str(row.get(name_c, '')).strip
