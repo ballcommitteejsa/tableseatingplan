@@ -621,6 +621,23 @@ __GUESTS_JSON__
 <script>
     const STORAGE_KEY = "BALL_COMMITTEE_SEATING_STATE_V3";
     const tableMaxCapacity = __MAX_CAPACITY__;
+    
+    // Safe storage wrapper that never throws SecurityError
+    const safeStorage = {
+        getItem: function(key) {
+            try { return window.localStorage ? window.localStorage.getItem(key) : null; }
+            catch(e) { return null; }
+        },
+        setItem: function(key, val) {
+            try { if (window.localStorage) window.localStorage.setItem(key, val); }
+            catch(e) {}
+        },
+        removeItem: function(key) {
+            try { if (window.localStorage) window.localStorage.removeItem(key); }
+            catch(e) {}
+        }
+    };
+
     const rawDataText = document.getElementById('guests-raw-data').textContent;
     let initialGuests = [];
     try {
@@ -641,6 +658,7 @@ __GUESTS_JSON__
         tableNicknames[i] = "TABLE " + (i < 10 ? '0' + i : i);
     }
 
+    // Always build 20 tables first
     const grid = document.getElementById('tables-grid');
     for (let i = 1; i <= 20; i++) {
         const tCol = document.createElement('div');
@@ -794,12 +812,12 @@ __GUESTS_JSON__
         const csvRows = [headers.join(";")];
         rows.forEach(r => {
             csvRows.push([
-                '"' + r["Table"].replace(/"/g, '""') + '"',
+                '"' + String(r["Table"]).replace(/"/g, '""') + '"',
                 r["Seat"],
-                '"' + r["Guest Name"].replace(/"/g, '""') + '"',
-                '"' + r["Committee"].replace(/"/g, '""') + '"',
-                '"' + r["Dietary / Allergy"].replace(/"/g, '""') + '"',
-                '"' + r["Preferences"].replace(/"/g, '""') + '"'
+                '"' + String(r["Guest Name"]).replace(/"/g, '""') + '"',
+                '"' + String(r["Committee"]).replace(/"/g, '""') + '"',
+                '"' + String(r["Dietary / Allergy"]).replace(/"/g, '""') + '"',
+                '"' + String(r["Preferences"]).replace(/"/g, '""') + '"'
             ].join(";"));
         });
         const csvContent = "\uFEFF" + csvRows.join("\r\n");
@@ -843,7 +861,7 @@ __GUESTS_JSON__
         }
 
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            safeStorage.setItem(STORAGE_KEY, JSON.stringify(state));
             const statusEl = document.getElementById('save-status');
             statusEl.innerText = manual ? '✅ Saved to browser!' : '⚡ Saved';
             setTimeout(() => { statusEl.innerText = '⚡ Auto-save active'; }, 2000);
@@ -853,7 +871,7 @@ __GUESTS_JSON__
     }
 
     function loadFromBrowser() {
-        const savedText = localStorage.getItem(STORAGE_KEY);
+        const savedText = safeStorage.getItem(STORAGE_KEY);
         if (!savedText) return false;
 
         try {
@@ -925,7 +943,7 @@ __GUESTS_JSON__
 
     function resetBrowserStorage() {
         if (confirm("Are you sure you want to reset all seating arrangements and start fresh?")) {
-            localStorage.removeItem(STORAGE_KEY);
+            safeStorage.removeItem(STORAGE_KEY);
             location.reload();
         }
     }
@@ -1006,7 +1024,14 @@ __GUESTS_JSON__
         }
     }
 
-    const restored = loadFromBrowser();
+    // Attempt restore from safeStorage, otherwise populate fresh
+    let restored = false;
+    try {
+        restored = loadFromBrowser();
+    } catch(err) {
+        console.warn("Storage restore error:", err);
+    }
+
     if (!restored) {
         if (initialGuests.length > 0) {
             initialGuests.forEach(g => {
