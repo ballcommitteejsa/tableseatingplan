@@ -7,7 +7,7 @@ import streamlit.components.v1 as components
 from PIL import Image
 
 st.set_page_config(
-    page_title="Ball Committee — Seating Studio",
+    page_title="Ball Committee — Seating Studio & Floor Plan",
     layout="wide",
     initial_sidebar_state="collapsed"
 )
@@ -21,11 +21,6 @@ st.markdown("""
         font-family: 'Inter', sans-serif;
     }
     
-    .header-container {
-        text-align: center;
-        margin-bottom: 15px;
-    }
-    
     .gala-title {
         font-family: 'Cinzel', serif !important;
         letter-spacing: 4px;
@@ -33,6 +28,7 @@ st.markdown("""
         font-size: 1.6rem;
         margin: 0;
         text-transform: uppercase;
+        text-align: center;
     }
 
     .stButton>button {
@@ -58,7 +54,7 @@ col_l, col_m, col_r = st.columns([1.5, 1, 1.5])
 with col_m:
     render_header()
 
-st.markdown("<p style='text-align: center; letter-spacing: 2px; color: #6B7280; text-transform: uppercase; font-size: 0.75rem; margin-top: -8px; margin-bottom: 14px;'>20-Table Seating Studio</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; letter-spacing: 2px; color: #6B7280; text-transform: uppercase; font-size: 0.75rem; margin-top: -8px; margin-bottom: 14px;'>20-Table Seating Studio & Hall Floor Plan</p>", unsafe_allow_html=True)
 
 # ==========================================
 # PARSER LOGICA
@@ -239,6 +235,28 @@ html_code = f"""
         margin-bottom: 8px;
         font-size: 0.8rem;
     }}
+    .mode-tabs {{
+        display: inline-flex;
+        background: #27272A;
+        padding: 2px;
+        border-radius: 4px;
+        margin-left: 12px;
+    }}
+    .mode-tab {{
+        background: transparent;
+        color: #A1A1AA;
+        border: none;
+        padding: 4px 10px;
+        border-radius: 3px;
+        font-size: 0.75rem;
+        font-weight: 600;
+        cursor: pointer;
+    }}
+    .mode-tab.active {{
+        background: #3F3F46;
+        color: #FFF;
+    }}
+
     .btn {{
         background: #374151;
         color: #FFF;
@@ -311,6 +329,7 @@ html_code = f"""
         border-radius: 3px;
     }}
 
+    /* GRID VIEW */
     .grid-20 {{
         display: grid;
         grid-template-columns: repeat(5, 1fr);
@@ -372,10 +391,14 @@ html_code = f"""
         font-size: 0.72rem;
         display: flex;
         flex-direction: column;
+        transition: transform 0.1s ease;
     }}
     .guest-card.selected {{
         background: #EFF6FF !important;
         border-color: #2563EB !important;
+    }}
+    .guest-card.dragging {{
+        opacity: 0.4;
     }}
     .guest-top {{
         display: flex;
@@ -442,17 +465,121 @@ html_code = f"""
         cursor: pointer;
         border-radius: 2px;
     }}
+
+    /* ==========================================
+       FLOOR PLAN VIEW (ZAALPLATTEGROND)
+       ========================================== */
+    #floorplan-view {{
+        display: none;
+        width: 100%;
+        margin-top: 4px;
+    }}
+    .hall-canvas {{
+        width: 100%;
+        height: 820px;
+        background: #FFFFFF;
+        border: 3px solid #111111;
+        border-radius: 6px;
+        position: relative;
+        overflow: hidden;
+        box-shadow: 0 4px 10px rgba(0,0,0,0.06);
+    }}
+    .hall-label {{
+        position: absolute;
+        top: 8px;
+        left: 12px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 2px;
+        color: #9CA3AF;
+        text-transform: uppercase;
+        pointer-events: none;
+    }}
+    .round-table-node {{
+        width: 105px;
+        height: 105px;
+        border-radius: 50%;
+        background: #FFFFFF;
+        border: 3px solid #111111;
+        position: absolute;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        text-align: center;
+        cursor: move;
+        box-shadow: 0 3px 6px rgba(0,0,0,0.12);
+        padding: 6px;
+        transition: border-color 0.15s, box-shadow 0.15s;
+    }}
+    .round-table-node:hover {{
+        border-color: #2563EB;
+        box-shadow: 0 4px 10px rgba(37,99,235,0.25);
+    }}
+    .rt-num {{
+        font-weight: 800;
+        font-size: 0.75rem;
+        color: #111111;
+    }}
+    .rt-name {{
+        font-size: 0.62rem;
+        color: #4B5563;
+        font-weight: 600;
+        line-height: 1.1;
+        max-width: 90px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+    }}
+    .rt-badge {{
+        font-size: 0.62rem;
+        margin-top: 3px;
+        font-weight: bold;
+        padding: 1px 4px;
+        border-radius: 3px;
+    }}
+
+    .hall-element-node {{
+        position: absolute;
+        background: #1F2937;
+        color: #FFFFFF;
+        border-radius: 4px;
+        padding: 8px 14px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        letter-spacing: 1px;
+        cursor: move;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }}
+    .del-btn {{
+        background: transparent;
+        color: #EF4444;
+        border: none;
+        cursor: pointer;
+        font-weight: bold;
+        padding: 0;
+        font-size: 0.8rem;
+    }}
 </style>
 </head>
 <body>
 
 <div class="toolbar">
-    <div style="font-weight: 600;">SEATING STUDIO</div>
+    <div style="display: flex; align-items: center;">
+        <span style="font-weight: 600;">SEATING STUDIO</span>
+        <div class="mode-tabs">
+            <button class="mode-tab active" id="tab-grid" onclick="switchMode('grid')">Table Columns</button>
+            <button class="mode-tab" id="tab-floor" onclick="switchMode('floor')">Hall Floor Plan (Zaalplattegrond)</button>
+        </div>
+    </div>
     <div>
         <span id="select-label" style="color: #9CA3AF; margin-right: 6px;">0 selected</span>
         <button class="btn btn-blue" id="groupBtn" onclick="bundleSelected()" disabled>Group Selected</button>
         <button class="btn btn-green" onclick="exportCards()">Export Excel (Place Cards)</button>
-        <button class="btn" onclick="exportPdf()">Save PDF</button>
+        <button class="btn" onclick="exportPdf()">Save PDF (Table Lists & Allergies)</button>
         <button class="btn" onclick="resetLayout()">Reset Layout</button>
     </div>
 </div>
@@ -465,7 +592,7 @@ html_code = f"""
     <button class="btn" onclick="addGuestManual()" style="margin: 0; background: #111;">Add</button>
 </div>
 
-<div class="pool-section">
+<div class="pool-section" id="pool-section-wrapper">
     <div class="pool-title">
         <span>UNASSIGNED QUEUE (<span id="pool-count">0</span>)</span>
         <input type="text" class="pool-search-input" id="poolSearch" placeholder="Search unassigned guest..." oninput="filterPool(this.value)">
@@ -473,26 +600,46 @@ html_code = f"""
     <div class="pool-container" id="pool-zone" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'pool')" ondragleave="dragLeave(event)"></div>
 </div>
 
+<!-- MODE 1: GRID VIEW -->
 <div class="grid-20" id="tables-grid"></div>
 
+<!-- MODE 2: FLOOR PLAN VIEW -->
+<div id="floorplan-view">
+    <div style="background: #FFF; border: 1px solid #D1D5DB; padding: 6px 10px; border-radius: 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 0.75rem;">
+        <span style="font-weight: bold;">Add Hall Item (bv. Podium, Bar):</span>
+        <input type="text" id="itemText" placeholder="Name (e.g. Stage / Podium, DJ, Bar, Entrance)" style="padding: 4px 8px; border: 1px solid #D1D5DB; border-radius: 3px; font-size: 0.75rem; width: 260px;">
+        <button class="btn" onclick="addHallItem()" style="background: #111; margin: 0;">Add to Hall</button>
+        <span style="color: #6B7280; margin-left: auto;">Drag round tables and stage items freely across the hall.</span>
+    </div>
+    <div class="hall-canvas" id="hall-canvas">
+        <div class="hall-label">Ballroom Floor Plan • Drag & Position Tables</div>
+    </div>
+</div>
+
 <script>
-    const STORAGE_KEY = "BALL_STUDIO_STORAGE_PERMANENT_V5";
+    const STORAGE_KEY = "BALL_STUDIO_STORAGE_PERMANENT_V6";
     const maxCapacity = {table_max_seats};
     const rawGuests = {guests_json};
 
+    let currentMode = 'grid';
     let guestMap = {{}};
     rawGuests.forEach(g => guestMap[g.id] = g);
 
     let selectedIds = new Set();
     let bundles = {{}};
     let tableNames = {{}};
+    let tablePositions = {{}};
+    let hallItems = [];
     let draggedId = null;
 
     for (let i = 1; i <= 20; i++) {{
         tableNames[i] = "TABLE " + (i < 10 ? '0' + i : i);
+        let colIdx = (i - 1) % 5;
+        let rowIdx = Math.floor((i - 1) / 5);
+        tablePositions[i] = {{ x: 40 + colIdx * 210, y: 70 + rowIdx * 180 }};
     }}
 
-    // 20 Tafels opbouwen
+    // 20 Tafels opbouwen in Grid
     const grid = document.getElementById('tables-grid');
     for (let i = 1; i <= 20; i++) {{
         const col = document.createElement('div');
@@ -502,14 +649,38 @@ html_code = f"""
                 <input type="text" class="table-input" id="tbl-input-${{i}}" value="${{tableNames[i]}}" onchange="setTableName(${{i}}, this.value)">
                 <span id="t-count-${{i}}" style="color: #6B7280;">0/${{maxCapacity}}</span>
             </div>
-            <div class="dropzone" id="zone-table-${{i}}" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'zone-table-${{i}}')" ondragleave="dragLeave(event)"></div>
+            <div class="dropzone" id="zone-table-${{i}}" ondragover="handleDragOverZone(event)" ondrop="handleDrop(event, 'zone-table-${{i}}')" ondragleave="dragLeave(event)"></div>
         `;
         grid.appendChild(col);
     }}
 
     function setTableName(i, val) {{
         tableNames[i] = val.trim() || ("TABLE " + (i < 10 ? '0' + i : i));
+        const inp = document.getElementById('tbl-input-' + i);
+        if (inp) inp.value = tableNames[i];
         saveState();
+        renderFloorPlan();
+    }}
+
+    function switchMode(mode) {{
+        currentMode = mode;
+        const gridView = document.getElementById('tables-grid');
+        const floorView = document.getElementById('floorplan-view');
+        const tabGrid = document.getElementById('tab-grid');
+        const tabFloor = document.getElementById('tab-floor');
+
+        if (mode === 'floor') {{
+            gridView.style.display = 'none';
+            floorView.style.display = 'block';
+            tabGrid.classList.remove('active');
+            tabFloor.classList.add('active');
+            renderFloorPlan();
+        }} else {{
+            gridView.style.display = 'grid';
+            floorView.style.display = 'none';
+            tabGrid.classList.add('active');
+            tabFloor.classList.remove('active');
+        }}
     }}
 
     function createGuestCard(g) {{
@@ -518,6 +689,7 @@ html_code = f"""
         div.id = g.id;
         div.draggable = true;
         div.ondragstart = (e) => dragStart(e, g.id);
+        div.ondragend = (e) => dragEnd(e);
 
         let comm = g.committee ? `<span class="tag-comm">${{g.committee}}</span>` : '';
         let diet = g.dietary ? `<div class="tag-diet">${{g.dietary}}</div>` : '';
@@ -545,6 +717,7 @@ html_code = f"""
         div.id = bId;
         div.draggable = true;
         div.ondragstart = (e) => dragStart(e, bId);
+        div.ondragend = (e) => dragEnd(e);
 
         let memberIds = bundleData.members || [];
         let labelName = bundleData.name || ("GROUP (" + memberIds.length + ")");
@@ -574,13 +747,196 @@ html_code = f"""
         }});
     }}
 
-    // Sla volledige guestMap op zodat bij een refresh ZONDER bestand alsnog alle data bewaard blijft
+    // ==========================================
+    // PRECISE INTRA-TABLE DRAG & DROP REORDERING
+    // ==========================================
+    function dragStart(e, id) {{
+        draggedId = id;
+        e.dataTransfer.setData('text/plain', id);
+        setTimeout(() => {{
+            const el = document.getElementById(id);
+            if (el) el.classList.add('dragging');
+        }}, 0);
+    }}
+
+    function dragEnd(e) {{
+        if (draggedId) {{
+            const el = document.getElementById(draggedId);
+            if (el) el.classList.remove('dragging');
+        }}
+    }}
+
+    function allowDrop(e) {{
+        e.preventDefault();
+        e.currentTarget.classList.add('dragover');
+    }}
+
+    function dragLeave(e) {{
+        e.currentTarget.classList.remove('dragover');
+    }}
+
+    function handleDragOverZone(e) {{
+        e.preventDefault();
+        const dropzone = e.currentTarget;
+        dropzone.classList.add('dragover');
+        if (!draggedId) return;
+
+        const draggingEl = document.getElementById(draggedId);
+        if (!draggingEl) return;
+
+        const afterElement = getDragAfterElement(dropzone, e.clientY);
+        if (afterElement == null) {{
+            dropzone.appendChild(draggingEl);
+        }} else {{
+            dropzone.insertBefore(draggingEl, afterElement);
+        }}
+    }}
+
+    function getDragAfterElement(container, y) {{
+        const draggableElements = [...container.querySelectorAll('.guest-card:not(.dragging), .bundle-card:not(.dragging)')];
+        return draggableElements.reduce((closest, child) => {{
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {{
+                return {{ offset: offset, element: child }};
+            }} else {{
+                return closest;
+            }}
+        }}, {{ offset: Number.NEGATIVE_INFINITY }}).element;
+    }}
+
+    function handleDrop(e, targetZoneId) {{
+        e.preventDefault();
+        e.currentTarget.classList.remove('dragover');
+        if (!draggedId) return;
+        const el = document.getElementById(draggedId);
+        if (el) {{
+            el.classList.remove('dragging');
+            updateCounters();
+            saveState();
+            renderFloorPlan();
+        }}
+    }}
+
+    // ==========================================
+    // FLOOR PLAN: ROUND TABLES & DRAGGING
+    // ==========================================
+    function renderFloorPlan() {{
+        const canvas = document.getElementById('hall-canvas');
+        Array.from(canvas.querySelectorAll('.round-table-node, .hall-element-node')).forEach(el => el.remove());
+
+        for (let i = 1; i <= 20; i++) {{
+            const z = document.getElementById('zone-table-' + i);
+            let count = 0;
+            if (z) {{
+                Array.from(z.children).forEach(c => {{
+                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
+                }});
+            }}
+
+            const pos = tablePositions[i] || {{ x: 40 + ((i-1)%5)*200, y: 70 + Math.floor((i-1)/5)*170 }};
+            const rTable = document.createElement('div');
+            rTable.className = 'round-table-node';
+            rTable.id = 'rt-node-' + i;
+            rTable.style.left = pos.x + 'px';
+            rTable.style.top = pos.y + 'px';
+
+            let badgeColor = count > maxCapacity ? '#FEE2E2' : (count === maxCapacity ? '#DCFCE7' : '#F3F4F6');
+            let textColor = count > maxCapacity ? '#DC2626' : (count === maxCapacity ? '#16A34A' : '#4B5563');
+
+            rTable.innerHTML = `
+                <div class="rt-num">T-${{i < 10 ? '0' + i : i}}</div>
+                <div class="rt-name" title="${{tableNames[i]}}">${{tableNames[i]}}</div>
+                <div class="rt-badge" style="background: ${{badgeColor}}; color: ${{textColor}};">${{count}}/${{maxCapacity}}</div>
+            `;
+            attachCanvasDraggable(rTable, (x, y) => {{
+                tablePositions[i] = {{ x, y }};
+                saveState();
+            }});
+            canvas.appendChild(rTable);
+        }}
+
+        hallItems.forEach((item, idx) => {{
+            const el = document.createElement('div');
+            el.className = 'hall-element-node';
+            el.style.left = item.x + 'px';
+            el.style.top = item.y + 'px';
+            el.innerHTML = `
+                <span>${{item.text}}</span>
+                <button class="del-btn" onclick="removeHallItem(${{idx}})" title="Delete item">✕</button>
+            `;
+            attachCanvasDraggable(el, (x, y) => {{
+                item.x = x;
+                item.y = y;
+                saveState();
+            }});
+            canvas.appendChild(el);
+        }});
+    }}
+
+    function addHallItem() {{
+        const inp = document.getElementById('itemText');
+        const txt = inp.value.trim();
+        if (!txt) return;
+        hallItems.push({{ text: txt, x: 460, y: 20 }});
+        inp.value = '';
+        saveState();
+        renderFloorPlan();
+    }}
+
+    function removeHallItem(idx) {{
+        hallItems.splice(idx, 1);
+        saveState();
+        renderFloorPlan();
+    }}
+
+    function attachCanvasDraggable(element, onMoveCallback) {{
+        let isDragging = false;
+        let startX, startY, origX, origY;
+
+        element.onmousedown = function(e) {{
+            if (e.target.tagName.toLowerCase() === 'button') return;
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+            origX = parseInt(element.style.left) || 0;
+            origY = parseInt(element.style.top) || 0;
+            document.onmousemove = onMouseMove;
+            document.onmouseup = onMouseUp;
+            e.preventDefault();
+        }};
+
+        function onMouseMove(e) {{
+            if (!isDragging) return;
+            let dx = e.clientX - startX;
+            let dy = e.clientY - startY;
+            let newX = Math.max(5, Math.min(1080, origX + dx));
+            let newY = Math.max(5, Math.min(710, origY + dy));
+            element.style.left = newX + 'px';
+            element.style.top = newY + 'px';
+        }}
+
+        function onMouseUp(e) {{
+            if (isDragging) {{
+                isDragging = false;
+                document.onmousemove = null;
+                document.onmouseup = null;
+                onMoveCallback(parseInt(element.style.left), parseInt(element.style.top));
+            }}
+        }}
+    }}
+
+    // ==========================================
+    // PERSISTENCE & STORAGE
+    // ==========================================
     function saveState() {{
         try {{
             const state = {{
                 guestMap: guestMap,
                 bundles: bundles,
                 tableNames: tableNames,
+                tablePositions: tablePositions,
+                hallItems: hallItems,
                 pool: Array.from(poolZone.children).map(c => ({{ type: c.classList.contains('bundle-card') ? 'bundle' : 'guest', id: c.id }})),
                 tables: {{}}
             }};
@@ -605,6 +961,8 @@ html_code = f"""
             }}
 
             bundles = state.bundles || {{}};
+            tablePositions = state.tablePositions || tablePositions;
+            hallItems = state.hallItems || [];
 
             if (state.tableNames) {{
                 tableNames = state.tableNames;
@@ -654,7 +1012,6 @@ html_code = f"""
         }}
     }}
 
-    // AUTOMATISCHE BUNDELING: UITSLUITEND COMMISSIES BUNDELEN (MAX 10), REGULIERE GASTEN BLIJVEN LOS
     function autoBundleCommitteesOnly() {{
         let commGroups = {{}};
         let regularGuests = [];
@@ -669,7 +1026,6 @@ html_code = f"""
             }}
         }});
 
-        // 1. Commissie-groepen bundelen in blokken van maximaal 10 (komen vooraan in wachtrij)
         Object.keys(commGroups).sort().forEach(commName => {{
             const ids = commGroups[commName];
             for (let i = 0; i < ids.length; i += 10) {{
@@ -684,7 +1040,6 @@ html_code = f"""
             }}
         }});
 
-        // 2. Reguliere gasten ZONDER commissie NIET bundelen: direct als losse kaarten toevoegen
         regularGuests.forEach(g => {{
             poolZone.appendChild(createGuestCard(g));
         }});
@@ -692,13 +1047,13 @@ html_code = f"""
         saveState();
     }}
 
-    // Start-initiatie
     if (!loadState()) {{
         if (Object.keys(guestMap).length > 0) {{
             autoBundleCommitteesOnly();
         }}
     }}
     updateCounters();
+    renderFloorPlan();
 
     function addGuestManual() {{
         const nEl = document.getElementById('manualName');
@@ -762,29 +1117,6 @@ html_code = f"""
         saveState();
     }}
 
-    function dragStart(e, id) {{
-        draggedId = id;
-        e.dataTransfer.setData('text/plain', id);
-    }}
-    function allowDrop(e) {{
-        e.preventDefault();
-        e.currentTarget.classList.add('dragover');
-    }}
-    function dragLeave(e) {{
-        e.currentTarget.classList.remove('dragover');
-    }}
-    function handleDrop(e, target) {{
-        e.preventDefault();
-        e.currentTarget.classList.remove('dragover');
-        if (!draggedId) return;
-        const el = document.getElementById(draggedId);
-        if (el) {{
-            e.currentTarget.appendChild(el);
-            updateCounters();
-            saveState();
-        }}
-    }}
-
     function updateCounters() {{
         let pCount = 0;
         Array.from(poolZone.children).forEach(c => {{
@@ -795,17 +1127,21 @@ html_code = f"""
         for (let i = 1; i <= 20; i++) {{
             const z = document.getElementById('zone-table-' + i);
             let count = 0;
-            Array.from(z.children).forEach(c => {{
-                count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
-            }});
+            if (z) {{
+                Array.from(z.children).forEach(c => {{
+                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
+                }});
+            }}
             const counter = document.getElementById('t-count-' + i);
-            counter.innerText = `${{count}}/${{maxCapacity}}`;
-            counter.style.color = count > maxCapacity ? '#DC2626' : (count === maxCapacity ? '#16A34A' : '#6B7280');
+            if (counter) {{
+                counter.innerText = `${{count}}/${{maxCapacity}}`;
+                counter.style.color = count > maxCapacity ? '#DC2626' : (count === maxCapacity ? '#16A34A' : '#6B7280');
+            }}
         }}
     }}
 
     function resetLayout() {{
-        if (confirm("Reset all seating positions and regroup guests?")) {{
+        if (confirm("Reset all seating positions and floor plan positions?")) {{
             localStorage.removeItem(STORAGE_KEY);
             location.reload();
         }}
@@ -845,6 +1181,9 @@ html_code = f"""
         document.body.removeChild(a);
     }}
 
+    // ==========================================
+    // CLEAR STRUCTURED TABLE & ALLERGIES PRINTOUT
+    // ==========================================
     function exportPdf() {{
         saveState();
         let doc = `
@@ -852,45 +1191,72 @@ html_code = f"""
         <html>
         <head>
         <meta charset="utf-8">
-        <title>Seating Plan</title>
+        <title>Ball Banquet — Seating & Dietary Plan</title>
         <style>
-            @page {{ size: A4 landscape; margin: 8mm; }}
-            body {{ font-family: sans-serif; margin: 0; padding: 10px; color: #111; }}
-            h2 {{ text-align: center; margin: 0 0 10px 0; font-size: 14pt; }}
-            .grid {{ display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }}
-            .box {{ border: 1px solid #111; padding: 5px; page-break-inside: avoid; }}
-            .title {{ font-weight: bold; font-size: 8pt; border-bottom: 1px solid #111; padding-bottom: 2px; margin-bottom: 4px; display: flex; justify-content: space-between; }}
-            .row {{ font-size: 7pt; padding: 2px 0; border-bottom: 1px dotted #ccc; }}
+            @page {{ size: A4 portrait; margin: 10mm; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; color: #111; }}
+            h1 {{ text-align: center; font-size: 16pt; margin: 0 0 4px 0; text-transform: uppercase; letter-spacing: 2px; }}
+            .sub-title {{ text-align: center; font-size: 8pt; color: #6B7280; margin-bottom: 14px; text-transform: uppercase; }}
+            .tables-container {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }}
+            .table-block {{ border: 1.5px solid #111; border-radius: 4px; padding: 8px 10px; page-break-inside: avoid; background: #FFF; }}
+            .table-heading {{ font-weight: 800; font-size: 9pt; border-bottom: 2px solid #111; padding-bottom: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; }}
+            .guest-entry {{ display: flex; justify-content: space-between; align-items: center; font-size: 7.5pt; padding: 3px 0; border-bottom: 1px dotted #E5E7EB; }}
+            .guest-primary {{ font-weight: 600; color: #111; }}
+            .guest-comm {{ font-size: 6.5pt; color: #1D4ED8; font-weight: 700; margin-left: 4px; }}
+            .allergy-tag {{ font-weight: 700; font-size: 7pt; color: #B45309; background: #FEF3C7; padding: 1px 5px; border-radius: 2px; text-align: right; }}
+            .no-allergy {{ color: #9CA3AF; font-size: 6.5pt; }}
         </style>
         </head>
         <body>
-        <h2>BALL COMMITTEE — SEATING PLAN</h2>
-        <div class="grid">
+        <h1>BALL COMMITTEE — BANQUET SEATING LIST</h1>
+        <div class="sub-title">Official Table Seating Plan & Guest Allergies</div>
+        <div class="tables-container">
         `;
+
         for (let i = 1; i <= 20; i++) {{
             const tName = tableNames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
             const z = document.getElementById('zone-table-' + i);
-            const cnt = document.getElementById('t-count-' + i).innerText;
-            doc += `<div class="box"><div class="title"><span>${{tName}}</span><span>${{cnt}}</span></div>`;
+            const cnt = document.getElementById('t-count-' + i) ? document.getElementById('t-count-' + i).innerText : '';
+
+            doc += `
+            <div class="table-block">
+                <div class="table-heading">
+                    <span>${{tName}}</span>
+                    <span>${{cnt}}</span>
+                </div>
+            `;
+
             let seat = 1;
-            Array.from(z.children).forEach(child => {{
-                const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
-                ids.forEach(id => {{
-                    const g = guestMap[id];
-                    if (g) {{
-                        doc += `<div class="row"><b>${{seat++}}.</b> ${{g.name}} ${{g.committee ? '['+g.committee+']' : ''}} ${{g.dietary ? '('+g.dietary+')' : ''}}</div>`;
-                    }}
+            if (z && z.children.length > 0) {{
+                Array.from(z.children).forEach(child => {{
+                    const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
+                    ids.forEach(id => {{
+                        const g = guestMap[id];
+                        if (g) {{
+                            let allergyDisplay = g.dietary ? `<span class="allergy-tag">Allergy: ${{g.dietary}}</span>` : `<span class="no-allergy">None</span>`;
+                            let commDisplay = g.committee ? `<span class="guest-comm">[${{g.committee}}]</span>` : '';
+                            doc += `
+                            <div class="guest-entry">
+                                <div><b>${{seat++}}.</b> <span class="guest-primary">${{g.name}}</span> ${{commDisplay}}</div>
+                                <div>${{allergyDisplay}}</div>
+                            </div>
+                            `;
+                        }}
+                    }});
                 }});
-            }});
+            }} else {{
+                doc += `<div style="font-size: 7.5pt; color: #9CA3AF; font-style: italic; padding: 4px 0;">No guests assigned yet.</div>`;
+            }}
             doc += `</div>`;
         }}
+
         doc += `</div></body></html>`;
 
         const w = window.open('', '_blank');
         if (w) {{
             w.document.write(doc);
             w.document.close();
-            setTimeout(() => w.print(), 300);
+            setTimeout(() => w.print(), 350);
         }}
     }}
 </script>
@@ -898,7 +1264,7 @@ html_code = f"""
 </html>
 """
 
-components.html(html_code, height=1350, scrolling=True)
+components.html(html_code, height=1400, scrolling=True)
 
 # Keukenoverzicht onderaan
 if parsed_guests:
