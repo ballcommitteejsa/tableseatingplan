@@ -476,7 +476,7 @@ html_code = f"""
 <div class="grid-20" id="tables-grid"></div>
 
 <script>
-    const STORAGE_KEY = "BALL_STUDIO_STORAGE_PERMANENT_V4";
+    const STORAGE_KEY = "BALL_STUDIO_STORAGE_PERMANENT_V5";
     const maxCapacity = {table_max_seats};
     const rawGuests = {guests_json};
 
@@ -598,7 +598,6 @@ html_code = f"""
             if (!raw) return false;
             const state = JSON.parse(raw);
 
-            // Herstel volledige gastenkaarten uit storage als er bij refresh geen nieuwe upload was
             if (state.guestMap) {{
                 Object.keys(state.guestMap).forEach(k => {{
                     if (!guestMap[k]) guestMap[k] = state.guestMap[k];
@@ -655,8 +654,8 @@ html_code = f"""
         }}
     }}
 
-    // AUTOMATISCHE BUNDELING BIJ EERSTE INLADING
-    function autoBundleInitial() {{
+    // AUTOMATISCHE BUNDELING: UITSLUITEND COMMISSIES BUNDELEN (MAX 10), REGULIERE GASTEN BLIJVEN LOS
+    function autoBundleCommitteesOnly() {{
         let commGroups = {{}};
         let regularGuests = [];
 
@@ -666,11 +665,11 @@ html_code = f"""
                 if (!commGroups[c]) commGroups[c] = [];
                 commGroups[c].push(g.id);
             }} else {{
-                regularGuests.push(g.id);
+                regularGuests.push(g);
             }}
         }});
 
-        // 1. Commissie-groepen bundelen in blokken van maximaal 10 (komen vooraan)
+        // 1. Commissie-groepen bundelen in blokken van maximaal 10 (komen vooraan in wachtrij)
         Object.keys(commGroups).sort().forEach(commName => {{
             const ids = commGroups[commName];
             for (let i = 0; i < ids.length; i += 10) {{
@@ -685,18 +684,10 @@ html_code = f"""
             }}
         }});
 
-        // 2. Overige reguliere gasten bundelen in blokken van maximaal 10
-        let regGroupNum = 1;
-        for (let i = 0; i < regularGuests.length; i += 10) {{
-            const chunk = regularGuests.slice(i, i + 10);
-            if (chunk.length > 1) {{
-                const bId = 'bundle_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
-                bundles[bId] = {{ name: 'Regular Group ' + (regGroupNum++) + ' (' + chunk.length + ')', members: chunk }};
-                poolZone.appendChild(createBundleCard(bId, bundles[bId]));
-            }} else {{
-                poolZone.appendChild(createGuestCard(guestMap[chunk[0]]));
-            }}
-        }}
+        // 2. Reguliere gasten ZONDER commissie NIET bundelen: direct als losse kaarten toevoegen
+        regularGuests.forEach(g => {{
+            poolZone.appendChild(createGuestCard(g));
+        }});
 
         saveState();
     }}
@@ -704,7 +695,7 @@ html_code = f"""
     // Start-initiatie
     if (!loadState()) {{
         if (Object.keys(guestMap).length > 0) {{
-            autoBundleInitial();
+            autoBundleCommitteesOnly();
         }}
     }}
     updateCounters();
