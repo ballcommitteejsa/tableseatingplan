@@ -34,23 +34,7 @@ st.markdown("""
         margin: 0;
         text-transform: uppercase;
     }
-    
-    .gala-sub {
-        font-size: 0.75rem;
-        letter-spacing: 2px;
-        color: #6B7280;
-        text-transform: uppercase;
-        margin-top: 4px;
-    }
 
-    .control-panel {
-        background: #FFFFFF;
-        border: 1px solid #E5E7EB;
-        border-radius: 6px;
-        padding: 12px 18px;
-        margin-bottom: 12px;
-    }
-    
     .stButton>button {
         background-color: #111111 !important;
         color: #FFFFFF !important;
@@ -63,7 +47,6 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Logo weergave
 def render_header():
     for logo in ["ball_logo.png", "ball logo high res.jpg", "input_file_0.png"]:
         if os.path.exists(logo):
@@ -171,7 +154,6 @@ def parse_guestlist(uploaded_file):
         n2 = n2_val if n2_val and n2_val.lower() not in NON_DIETARY and len(n2_val) > 1 else ''
         if not n2 and occ > 1: n2 = f"Guest of {n1}"
 
-        # Voorkeuren
         p1_a, p1_b = split_names(row.get(c_p1, '')) if c_p1 else ('', '')
         if c_p2 and pd.notna(row.get(c_p2)):
             val = str(row.get(c_p2)).strip()
@@ -307,13 +289,21 @@ html_code = f"""
         color: #374151;
         display: flex;
         justify-content: space-between;
+        align-items: center;
+    }}
+    .pool-search-input {{
+        padding: 3px 6px;
+        border: 1px solid #D1D5DB;
+        border-radius: 3px;
+        font-size: 0.72rem;
+        width: 220px;
     }}
     .pool-container {{
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
         min-height: 50px;
-        max-height: 180px;
+        max-height: 200px;
         overflow-y: auto;
         padding: 4px;
         background: #F9FAFB;
@@ -478,7 +468,7 @@ html_code = f"""
 <div class="pool-section">
     <div class="pool-title">
         <span>UNASSIGNED QUEUE (<span id="pool-count">0</span>)</span>
-        <span style="font-weight: normal; color: #6B7280;">Drag guests to tables below</span>
+        <input type="text" class="pool-search-input" id="poolSearch" placeholder="Search unassigned guest..." oninput="filterPool(this.value)">
     </div>
     <div class="pool-container" id="pool-zone" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'pool')" ondragleave="dragLeave(event)"></div>
 </div>
@@ -486,7 +476,7 @@ html_code = f"""
 <div class="grid-20" id="tables-grid"></div>
 
 <script>
-    const STORAGE_KEY = "BALL_STUDIO_STORAGE_CLEAN";
+    const STORAGE_KEY = "BALL_STUDIO_STORAGE_PERMANENT_V4";
     const maxCapacity = {table_max_seats};
     const rawGuests = {guests_json};
 
@@ -549,18 +539,20 @@ html_code = f"""
         return div;
     }}
 
-    function createBundleCard(bId, memberIds) {{
+    function createBundleCard(bId, bundleData) {{
         const div = document.createElement('div');
         div.className = 'bundle-card';
         div.id = bId;
         div.draggable = true;
         div.ondragstart = (e) => dragStart(e, bId);
 
+        let memberIds = bundleData.members || [];
+        let labelName = bundleData.name || ("GROUP (" + memberIds.length + ")");
         let names = memberIds.map(id => guestMap[id] ? guestMap[id].name : id).join(', ');
 
         div.innerHTML = `
             <div class="bundle-head">
-                <span>GROUP (${{memberIds.length}})</span>
+                <span>${{labelName}}</span>
                 <button class="ungroup-link" onclick="ungroup('${{bId}}')">Ungroup</button>
             </div>
             <div style="font-weight: 500; font-size: 0.68rem; color: #713F12;">${{names}}</div>
@@ -570,12 +562,25 @@ html_code = f"""
 
     const poolZone = document.getElementById('pool-zone');
 
+    function filterPool(query) {{
+        const q = query.toLowerCase().trim();
+        Array.from(poolZone.children).forEach(child => {{
+            const text = child.innerText.toLowerCase();
+            if (!q || text.includes(q)) {{
+                child.style.display = '';
+            }} else {{
+                child.style.display = 'none';
+            }}
+        }});
+    }}
+
+    // Sla volledige guestMap op zodat bij een refresh ZONDER bestand alsnog alle data bewaard blijft
     function saveState() {{
         try {{
             const state = {{
+                guestMap: guestMap,
                 bundles: bundles,
                 tableNames: tableNames,
-                custom: Object.values(guestMap).filter(g => g.id.startsWith("manual_")),
                 pool: Array.from(poolZone.children).map(c => ({{ type: c.classList.contains('bundle-card') ? 'bundle' : 'guest', id: c.id }})),
                 tables: {{}}
             }};
@@ -592,11 +597,15 @@ html_code = f"""
             const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return false;
             const state = JSON.parse(raw);
-            bundles = state.bundles || {{}};
 
-            if (state.custom) {{
-                state.custom.forEach(g => guestMap[g.id] = g);
+            // Herstel volledige gastenkaarten uit storage als er bij refresh geen nieuwe upload was
+            if (state.guestMap) {{
+                Object.keys(state.guestMap).forEach(k => {{
+                    if (!guestMap[k]) guestMap[k] = state.guestMap[k];
+                }});
             }}
+
+            bundles = state.bundles || {{}};
 
             if (state.tableNames) {{
                 tableNames = state.tableNames;
@@ -614,7 +623,7 @@ html_code = f"""
                 state.pool.forEach(item => {{
                     if (item.type === 'bundle' && bundles[item.id]) {{
                         poolZone.appendChild(createBundleCard(item.id, bundles[item.id]));
-                        bundles[item.id].forEach(id => placed.add(id));
+                        (bundles[item.id].members || []).forEach(id => placed.add(id));
                     }} else if (item.type === 'guest' && guestMap[item.id]) {{
                         poolZone.appendChild(createGuestCard(guestMap[item.id]));
                         placed.add(item.id);
@@ -628,7 +637,7 @@ html_code = f"""
                     (state.tables[i] || []).forEach(item => {{
                         if (item.type === 'bundle' && bundles[item.id]) {{
                             z.appendChild(createBundleCard(item.id, bundles[item.id]));
-                            bundles[item.id].forEach(id => placed.add(id));
+                            (bundles[item.id].members || []).forEach(id => placed.add(id));
                         }} else if (item.type === 'guest' && guestMap[item.id]) {{
                             z.appendChild(createGuestCard(guestMap[item.id]));
                             placed.add(item.id);
@@ -646,11 +655,57 @@ html_code = f"""
         }}
     }}
 
+    // AUTOMATISCHE BUNDELING BIJ EERSTE INLADING
+    function autoBundleInitial() {{
+        let commGroups = {{}};
+        let regularGuests = [];
+
+        Object.values(guestMap).forEach(g => {{
+            if (g.committee && g.committee.trim()) {{
+                const c = g.committee.trim();
+                if (!commGroups[c]) commGroups[c] = [];
+                commGroups[c].push(g.id);
+            }} else {{
+                regularGuests.push(g.id);
+            }}
+        }});
+
+        // 1. Commissie-groepen bundelen in blokken van maximaal 10 (komen vooraan)
+        Object.keys(commGroups).sort().forEach(commName => {{
+            const ids = commGroups[commName];
+            for (let i = 0; i < ids.length; i += 10) {{
+                const chunk = ids.slice(i, i + 10);
+                if (chunk.length > 1) {{
+                    const bId = 'bundle_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+                    bundles[bId] = {{ name: commName + ' (' + chunk.length + ')', members: chunk }};
+                    poolZone.appendChild(createBundleCard(bId, bundles[bId]));
+                }} else {{
+                    poolZone.appendChild(createGuestCard(guestMap[chunk[0]]));
+                }}
+            }}
+        }});
+
+        // 2. Overige reguliere gasten bundelen in blokken van maximaal 10
+        let regGroupNum = 1;
+        for (let i = 0; i < regularGuests.length; i += 10) {{
+            const chunk = regularGuests.slice(i, i + 10);
+            if (chunk.length > 1) {{
+                const bId = 'bundle_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+                bundles[bId] = {{ name: 'Regular Group ' + (regGroupNum++) + ' (' + chunk.length + ')', members: chunk }};
+                poolZone.appendChild(createBundleCard(bId, bundles[bId]));
+            }} else {{
+                poolZone.appendChild(createGuestCard(guestMap[chunk[0]]));
+            }}
+        }}
+
+        saveState();
+    }}
+
     // Start-initiatie
     if (!loadState()) {{
-        Object.values(guestMap).forEach(g => {{
-            poolZone.appendChild(createGuestCard(g));
-        }});
+        if (Object.keys(guestMap).length > 0) {{
+            autoBundleInitial();
+        }}
     }}
     updateCounters();
 
@@ -682,9 +737,9 @@ html_code = f"""
 
     function bundleSelected() {{
         if (selectedIds.size < 2) return;
-        const bId = 'bundle_' + Date.now();
+        const bId = 'bundle_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5);
         const mIds = Array.from(selectedIds);
-        bundles[bId] = mIds;
+        bundles[bId] = {{ name: 'Group (' + mIds.length + ')', members: mIds }};
 
         const first = document.getElementById(mIds[0]);
         const parent = first ? first.parentElement : poolZone;
@@ -694,7 +749,7 @@ html_code = f"""
             if (el) el.remove();
         }});
 
-        parent.appendChild(createBundleCard(bId, mIds));
+        parent.appendChild(createBundleCard(bId, bundles[bId]));
         selectedIds.clear();
         document.getElementById('groupBtn').disabled = true;
         document.getElementById('select-label').innerText = '0 selected';
@@ -706,7 +761,8 @@ html_code = f"""
         const bEl = document.getElementById(bId);
         if (!bEl) return;
         const parent = bEl.parentElement;
-        (bundles[bId] || []).forEach(id => {{
+        const memberIds = bundles[bId] ? bundles[bId].members : [];
+        memberIds.forEach(id => {{
             if (guestMap[id]) parent.appendChild(createGuestCard(guestMap[id]));
         }});
         bEl.remove();
@@ -741,7 +797,7 @@ html_code = f"""
     function updateCounters() {{
         let pCount = 0;
         Array.from(poolZone.children).forEach(c => {{
-            pCount += c.classList.contains('bundle-card') ? (bundles[c.id] || []).length : 1;
+            pCount += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
         }});
         document.getElementById('pool-count').innerText = pCount;
 
@@ -749,7 +805,7 @@ html_code = f"""
             const z = document.getElementById('zone-table-' + i);
             let count = 0;
             Array.from(z.children).forEach(c => {{
-                count += c.classList.contains('bundle-card') ? (bundles[c.id] || []).length : 1;
+                count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
             }});
             const counter = document.getElementById('t-count-' + i);
             counter.innerText = `${{count}}/${{maxCapacity}}`;
@@ -758,7 +814,7 @@ html_code = f"""
     }}
 
     function resetLayout() {{
-        if (confirm("Reset all seating positions?")) {{
+        if (confirm("Reset all seating positions and regroup guests?")) {{
             localStorage.removeItem(STORAGE_KEY);
             location.reload();
         }}
@@ -772,7 +828,7 @@ html_code = f"""
             const z = document.getElementById('zone-table-' + i);
             let seat = 1;
             Array.from(z.children).forEach(child => {{
-                const ids = child.classList.contains('bundle-card') ? (bundles[child.id] || []) : [child.id];
+                const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
                 ids.forEach(id => {{
                     const g = guestMap[id];
                     if (g) {{
@@ -827,7 +883,7 @@ html_code = f"""
             doc += `<div class="box"><div class="title"><span>${{tName}}</span><span>${{cnt}}</span></div>`;
             let seat = 1;
             Array.from(z.children).forEach(child => {{
-                const ids = child.classList.contains('bundle-card') ? (bundles[child.id] || []) : [child.id];
+                const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
                 ids.forEach(id => {{
                     const g = guestMap[id];
                     if (g) {{
