@@ -54,7 +54,7 @@ col_l, col_m, col_r = st.columns([1.5, 1, 1.5])
 with col_m:
     render_header()
 
-st.markdown("<p style='text-align: center; letter-spacing: 2px; color: #6B7280; text-transform: uppercase; font-size: 0.75rem; margin-top: -8px; margin-bottom: 14px;'>20-Table Seating Studio & Hall Floor Plan</p>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center; letter-spacing: 2px; color: #6B7280; text-transform: uppercase; font-size: 0.75rem; margin-top: -8px; margin-bottom: 14px;'>Seating Studio & Hall Floor Plan Designer</p>", unsafe_allow_html=True)
 
 # ==========================================
 # PARSER LOGICA
@@ -206,7 +206,7 @@ if uploaded_file is not None:
 guests_json = json.dumps(parsed_guests)
 
 # ==========================================
-# INTERACTIEVE STUDIO (HTML/JS)
+# INTERACTIEVE STUDIO & FLOOR PLAN (HTML/JS)
 # ==========================================
 html_code = f"""
 <!DOCTYPE html>
@@ -234,19 +234,20 @@ html_code = f"""
         align-items: center;
         margin-bottom: 8px;
         font-size: 0.8rem;
+        flex-wrap: wrap;
+        gap: 8px;
     }}
     .mode-tabs {{
         display: inline-flex;
         background: #27272A;
         padding: 2px;
         border-radius: 4px;
-        margin-left: 12px;
     }}
     .mode-tab {{
         background: transparent;
         color: #A1A1AA;
         border: none;
-        padding: 4px 10px;
+        padding: 5px 12px;
         border-radius: 3px;
         font-size: 0.75rem;
         font-weight: 600;
@@ -275,7 +276,7 @@ html_code = f"""
     .btn-green {{ background: #15803D; }}
     .btn-green:hover {{ background: #166534; }}
 
-    .add-bar {{
+    .action-bar-row {{
         background: #FFF;
         border: 1px solid #D1D5DB;
         border-radius: 4px;
@@ -283,10 +284,12 @@ html_code = f"""
         margin-bottom: 8px;
         display: flex;
         align-items: center;
-        gap: 6px;
+        justify-content: space-between;
+        gap: 8px;
         font-size: 0.75rem;
+        flex-wrap: wrap;
     }}
-    .add-bar input {{
+    .action-bar-row input {{
         padding: 4px 6px;
         border: 1px solid #D1D5DB;
         border-radius: 3px;
@@ -330,7 +333,7 @@ html_code = f"""
     }}
 
     /* GRID VIEW */
-    .grid-20 {{
+    .grid-dynamic {{
         display: grid;
         grid-template-columns: repeat(5, 1fr);
         gap: 8px;
@@ -360,13 +363,24 @@ html_code = f"""
         background: transparent;
         font-weight: 700;
         font-size: 0.75rem;
-        width: 75%;
+        width: 65%;
         padding: 1px 2px;
     }}
     .table-input:focus {{
         border-color: #2563EB;
         background: #FFF;
         outline: none;
+    }}
+    .tbl-del-btn {{
+        background: transparent;
+        border: none;
+        color: #9CA3AF;
+        cursor: pointer;
+        font-size: 0.7rem;
+        padding: 0 2px;
+    }}
+    .tbl-del-btn:hover {{
+        color: #DC2626;
     }}
     .dropzone {{
         flex: 1;
@@ -391,14 +405,13 @@ html_code = f"""
         font-size: 0.72rem;
         display: flex;
         flex-direction: column;
-        transition: transform 0.1s ease;
     }}
     .guest-card.selected {{
         background: #EFF6FF !important;
         border-color: #2563EB !important;
     }}
     .guest-card.dragging {{
-        opacity: 0.4;
+        opacity: 0.35;
     }}
     .guest-top {{
         display: flex;
@@ -467,7 +480,7 @@ html_code = f"""
     }}
 
     /* ==========================================
-       FLOOR PLAN VIEW (ZAALPLATTEGROND)
+       FLOOR PLAN VIEW
        ========================================== */
     #floorplan-view {{
         display: none;
@@ -476,7 +489,7 @@ html_code = f"""
     }}
     .hall-canvas {{
         width: 100%;
-        height: 820px;
+        height: 840px;
         background: #FFFFFF;
         border: 3px solid #111111;
         border-radius: 6px;
@@ -543,16 +556,51 @@ html_code = f"""
         position: absolute;
         background: #1F2937;
         color: #FFFFFF;
+        border: 2px solid #111827;
         border-radius: 4px;
-        padding: 8px 14px;
+        padding: 6px 10px;
         font-size: 0.8rem;
         font-weight: 700;
         letter-spacing: 1px;
         cursor: move;
-        box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.18);
         display: flex;
+        flex-direction: column;
+        justify-content: space-between;
         align-items: center;
-        gap: 8px;
+        text-align: center;
+    }}
+    .node-header {{
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        width: 100%;
+        margin-bottom: 4px;
+    }}
+    .node-title {{
+        flex: 1;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        font-size: 0.78rem;
+    }}
+    .node-controls {{
+        display: flex;
+        gap: 3px;
+        align-items: center;
+    }}
+    .resize-btn {{
+        background: #374151;
+        color: #FFF;
+        border: 1px solid #4B5563;
+        border-radius: 2px;
+        font-size: 0.65rem;
+        cursor: pointer;
+        padding: 1px 4px;
+        font-weight: bold;
+    }}
+    .resize-btn:hover {{
+        background: #4B5563;
     }}
     .del-btn {{
         background: transparent;
@@ -560,15 +608,18 @@ html_code = f"""
         border: none;
         cursor: pointer;
         font-weight: bold;
-        padding: 0;
-        font-size: 0.8rem;
+        padding: 0 3px;
+        font-size: 0.85rem;
+    }}
+    .del-btn:hover {{
+        color: #F87171;
     }}
 </style>
 </head>
 <body>
 
 <div class="toolbar">
-    <div style="display: flex; align-items: center;">
+    <div style="display: flex; align-items: center; gap: 8px;">
         <span style="font-weight: 600;">SEATING STUDIO</span>
         <div class="mode-tabs">
             <button class="mode-tab active" id="tab-grid" onclick="switchMode('grid')">Table Columns</button>
@@ -579,17 +630,24 @@ html_code = f"""
         <span id="select-label" style="color: #9CA3AF; margin-right: 6px;">0 selected</span>
         <button class="btn btn-blue" id="groupBtn" onclick="bundleSelected()" disabled>Group Selected</button>
         <button class="btn btn-green" onclick="exportCards()">Export Excel (Place Cards)</button>
-        <button class="btn" onclick="exportPdf()">Save PDF (Table Lists & Allergies)</button>
+        <button class="btn" onclick="exportPdf()">Save PDF (Tables & Allergies)</button>
         <button class="btn" onclick="resetLayout()">Reset Layout</button>
     </div>
 </div>
 
-<div class="add-bar">
-    <span style="font-weight: 600;">Add Guest:</span>
-    <input type="text" id="manualName" placeholder="Full name (required)" style="flex: 2;">
-    <input type="text" id="manualComm" placeholder="Committee (optional)" style="flex: 1;">
-    <input type="text" id="manualDiet" placeholder="Dietary (optional)" style="flex: 1;">
-    <button class="btn" onclick="addGuestManual()" style="margin: 0; background: #111;">Add</button>
+<div class="action-bar-row">
+    <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-weight: 600;">Add Guest:</span>
+        <input type="text" id="manualName" placeholder="Full name (required)" style="width: 170px;">
+        <input type="text" id="manualComm" placeholder="Committee" style="width: 100px;">
+        <input type="text" id="manualDiet" placeholder="Dietary" style="width: 100px;">
+        <button class="btn" onclick="addGuestManual()" style="margin: 0; background: #111;">Add Guest</button>
+    </div>
+    <div style="display: flex; align-items: center; gap: 6px;">
+        <span style="font-weight: 600;">Manage Tables:</span>
+        <button class="btn" onclick="addNewTable()" style="background: #2563EB;">+ Add Table</button>
+        <span style="color: #6B7280; font-size: 0.72rem;">(Click [✕] on any table to remove it)</span>
+    </div>
 </div>
 
 <div class="pool-section" id="pool-section-wrapper">
@@ -601,15 +659,16 @@ html_code = f"""
 </div>
 
 <!-- MODE 1: GRID VIEW -->
-<div class="grid-20" id="tables-grid"></div>
+<div class="grid-dynamic" id="tables-grid"></div>
 
 <!-- MODE 2: FLOOR PLAN VIEW -->
 <div id="floorplan-view">
-    <div style="background: #FFF; border: 1px solid #D1D5DB; padding: 6px 10px; border-radius: 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 0.75rem;">
-        <span style="font-weight: bold;">Add Hall Item (bv. Podium, Bar):</span>
-        <input type="text" id="itemText" placeholder="Name (e.g. Stage / Podium, DJ, Bar, Entrance)" style="padding: 4px 8px; border: 1px solid #D1D5DB; border-radius: 3px; font-size: 0.75rem; width: 260px;">
+    <div style="background: #FFF; border: 1px solid #D1D5DB; padding: 6px 10px; border-radius: 4px; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; font-size: 0.75rem; flex-wrap: wrap;">
+        <span style="font-weight: bold;">Add Stage / Hall Item:</span>
+        <input type="text" id="itemText" placeholder="Name (e.g. Stage / Podium, DJ, Bar, Entrance)" style="padding: 4px 8px; border: 1px solid #D1D5DB; border-radius: 3px; font-size: 0.75rem; width: 250px;">
         <button class="btn" onclick="addHallItem()" style="background: #111; margin: 0;">Add to Hall</button>
-        <span style="color: #6B7280; margin-left: auto;">Drag round tables and stage items freely across the hall.</span>
+        <button class="btn btn-blue" onclick="printFloorPlan()">Print Floor Plan</button>
+        <span style="color: #6B7280; margin-left: auto;">Drag round tables & stage elements freely. Use [+] and [-] on stage to resize!</span>
     </div>
     <div class="hall-canvas" id="hall-canvas">
         <div class="hall-label">Ballroom Floor Plan • Drag & Position Tables</div>
@@ -617,7 +676,7 @@ html_code = f"""
 </div>
 
 <script>
-    const STORAGE_KEY = "BALL_STUDIO_STORAGE_PERMANENT_V6";
+    const STORAGE_KEY = "BALL_STUDIO_STORAGE_DYNAMIC_V7";
     const maxCapacity = {table_max_seats};
     const rawGuests = {guests_json};
 
@@ -627,39 +686,19 @@ html_code = f"""
 
     let selectedIds = new Set();
     let bundles = {{}};
+    let activeTableIds = [];
     let tableNames = {{}};
     let tablePositions = {{}};
     let hallItems = [];
     let draggedId = null;
 
+    // Default 20 tafels initialiseren
     for (let i = 1; i <= 20; i++) {{
+        activeTableIds.push(i);
         tableNames[i] = "TABLE " + (i < 10 ? '0' + i : i);
         let colIdx = (i - 1) % 5;
         let rowIdx = Math.floor((i - 1) / 5);
         tablePositions[i] = {{ x: 40 + colIdx * 210, y: 70 + rowIdx * 180 }};
-    }}
-
-    // 20 Tafels opbouwen in Grid
-    const grid = document.getElementById('tables-grid');
-    for (let i = 1; i <= 20; i++) {{
-        const col = document.createElement('div');
-        col.className = 'table-col';
-        col.innerHTML = `
-            <div class="table-head">
-                <input type="text" class="table-input" id="tbl-input-${{i}}" value="${{tableNames[i]}}" onchange="setTableName(${{i}}, this.value)">
-                <span id="t-count-${{i}}" style="color: #6B7280;">0/${{maxCapacity}}</span>
-            </div>
-            <div class="dropzone" id="zone-table-${{i}}" ondragover="handleDragOverZone(event)" ondrop="handleDrop(event, 'zone-table-${{i}}')" ondragleave="dragLeave(event)"></div>
-        `;
-        grid.appendChild(col);
-    }}
-
-    function setTableName(i, val) {{
-        tableNames[i] = val.trim() || ("TABLE " + (i < 10 ? '0' + i : i));
-        const inp = document.getElementById('tbl-input-' + i);
-        if (inp) inp.value = tableNames[i];
-        saveState();
-        renderFloorPlan();
     }}
 
     function switchMode(mode) {{
@@ -683,6 +722,79 @@ html_code = f"""
         }}
     }}
 
+    // ==========================================
+    // DYNAMIC TABLE MANAGEMENT (TOEVOEGEN / WEGHALEN)
+    // ==========================================
+    function rebuildTableGrid() {{
+        const grid = document.getElementById('tables-grid');
+        grid.innerHTML = '';
+        activeTableIds.forEach(i => {{
+            const col = document.createElement('div');
+            col.className = 'table-col';
+            col.id = 'table-column-wrapper-' + i;
+            col.innerHTML = `
+                <div class="table-head">
+                    <input type="text" class="table-input" id="tbl-input-${{i}}" value="${{tableNames[i] || ('TABLE ' + i)}}" onchange="setTableName(${{i}}, this.value)">
+                    <div style="display: flex; align-items: center; gap: 4px;">
+                        <span id="t-count-${{i}}" style="color: #6B7280;">0/${{maxCapacity}}</span>
+                        <button class="tbl-del-btn" onclick="removeTable(${{i}})" title="Delete this table">✕</button>
+                    </div>
+                </div>
+                <div class="dropzone" id="zone-table-${{i}}" ondragover="handleDragOverZone(event)" ondrop="handleDrop(event, 'zone-table-${{i}}')" ondragleave="dragLeave(event)"></div>
+            `;
+            grid.appendChild(col);
+        }});
+        updateCounters();
+    }}
+
+    function addNewTable() {{
+        let nextId = 1;
+        while (activeTableIds.includes(nextId)) {{
+            nextId++;
+        }}
+        activeTableIds.push(nextId);
+        activeTableIds.sort((a, b) => a - b);
+        tableNames[nextId] = "TABLE " + (nextId < 10 ? '0' + nextId : nextId);
+        
+        let colIdx = (nextId - 1) % 5;
+        let rowIdx = Math.floor((nextId - 1) / 5);
+        tablePositions[nextId] = {{ x: 40 + colIdx * 210, y: 70 + rowIdx * 180 }};
+
+        rebuildTableGrid();
+        saveState();
+        renderFloorPlan();
+    }}
+
+    function removeTable(tableId) {{
+        const z = document.getElementById('zone-table-' + tableId);
+        if (z && z.children.length > 0) {{
+            if (!confirm(`Table ${{tableNames[tableId]}} has guests assigned! Remove table and move guests back to unassigned queue?`)) {{
+                return;
+            }}
+            Array.from(z.children).forEach(child => {{
+                poolZone.appendChild(child);
+            }});
+        }}
+        activeTableIds = activeTableIds.filter(id => id !== tableId);
+        delete tableNames[tableId];
+        delete tablePositions[tableId];
+
+        rebuildTableGrid();
+        saveState();
+        renderFloorPlan();
+    }}
+
+    function setTableName(i, val) {{
+        tableNames[i] = val.trim() || ("TABLE " + (i < 10 ? '0' + i : i));
+        const inp = document.getElementById('tbl-input-' + i);
+        if (inp) inp.value = tableNames[i];
+        saveState();
+        renderFloorPlan();
+    }}
+
+    // ==========================================
+    // CARD CREATION
+    // ==========================================
     function createGuestCard(g) {{
         const div = document.createElement('div');
         div.className = 'guest-card';
@@ -749,6 +861,7 @@ html_code = f"""
 
     // ==========================================
     // PRECISE INTRA-TABLE DRAG & DROP REORDERING
+    // (Twee mensen direct naast elkaar zetten)
     // ==========================================
     function dragStart(e, id) {{
         draggedId = id;
@@ -819,13 +932,14 @@ html_code = f"""
     }}
 
     // ==========================================
-    // FLOOR PLAN: ROUND TABLES & DRAGGING
+    // FLOOR PLAN: ROUND TABLES & RESIZABLE PODIUM
     // ==========================================
     function renderFloorPlan() {{
         const canvas = document.getElementById('hall-canvas');
         Array.from(canvas.querySelectorAll('.round-table-node, .hall-element-node')).forEach(el => el.remove());
 
-        for (let i = 1; i <= 20; i++) {{
+        // Ronde tafels
+        activeTableIds.forEach(i => {{
             const z = document.getElementById('zone-table-' + i);
             let count = 0;
             if (z) {{
@@ -846,7 +960,7 @@ html_code = f"""
 
             rTable.innerHTML = `
                 <div class="rt-num">T-${{i < 10 ? '0' + i : i}}</div>
-                <div class="rt-name" title="${{tableNames[i]}}">${{tableNames[i]}}</div>
+                <div class="rt-name" title="${{tableNames[i] || ('TABLE ' + i)}}">${{tableNames[i] || ('TABLE ' + i)}}</div>
                 <div class="rt-badge" style="background: ${{badgeColor}}; color: ${{textColor}};">${{count}}/${{maxCapacity}}</div>
             `;
             attachCanvasDraggable(rTable, (x, y) => {{
@@ -854,16 +968,30 @@ html_code = f"""
                 saveState();
             }});
             canvas.appendChild(rTable);
-        }}
+        }});
 
+        // Podium / Extra elementen met formaat-aanpassing
         hallItems.forEach((item, idx) => {{
             const el = document.createElement('div');
             el.className = 'hall-element-node';
             el.style.left = item.x + 'px';
             el.style.top = item.y + 'px';
+            el.style.width = (item.w || 220) + 'px';
+            el.style.height = (item.h || 75) + 'px';
+
             el.innerHTML = `
-                <span>${{item.text}}</span>
-                <button class="del-btn" onclick="removeHallItem(${{idx}})" title="Delete item">✕</button>
+                <div class="node-header">
+                    <span class="node-title" title="${{item.text}}">${{item.text}}</span>
+                    <button class="del-btn" onclick="removeHallItem(${{idx}})" title="Delete item">✕</button>
+                </div>
+                <div class="node-controls">
+                    <span style="font-size: 0.65rem; color: #9CA3AF; margin-right: 2px;">W:</span>
+                    <button class="resize-btn" onclick="resizeItem(${{idx}}, -30, 0)">-</button>
+                    <button class="resize-btn" onclick="resizeItem(${{idx}}, 30, 0)">+</button>
+                    <span style="font-size: 0.65rem; color: #9CA3AF; margin-left: 4px; margin-right: 2px;">H:</span>
+                    <button class="resize-btn" onclick="resizeItem(${{idx}}, 0, -20)">-</button>
+                    <button class="resize-btn" onclick="resizeItem(${{idx}}, 0, 20)">+</button>
+                </div>
             `;
             attachCanvasDraggable(el, (x, y) => {{
                 item.x = x;
@@ -878,7 +1006,7 @@ html_code = f"""
         const inp = document.getElementById('itemText');
         const txt = inp.value.trim();
         if (!txt) return;
-        hallItems.push({{ text: txt, x: 460, y: 20 }});
+        hallItems.push({{ text: txt, x: 440, y: 30, w: 220, h: 75 }});
         inp.value = '';
         saveState();
         renderFloorPlan();
@@ -890,12 +1018,20 @@ html_code = f"""
         renderFloorPlan();
     }}
 
+    function resizeItem(idx, dw, dh) {{
+        if (!hallItems[idx]) return;
+        hallItems[idx].w = Math.max(90, (hallItems[idx].w || 220) + dw);
+        hallItems[idx].h = Math.max(45, (hallItems[idx].h || 75) + dh);
+        saveState();
+        renderFloorPlan();
+    }}
+
     function attachCanvasDraggable(element, onMoveCallback) {{
         let isDragging = false;
         let startX, startY, origX, origY;
 
         element.onmousedown = function(e) {{
-            if (e.target.tagName.toLowerCase() === 'button') return;
+            if (e.target.tagName.toLowerCase() === 'button' || e.target.tagName.toLowerCase() === 'input') return;
             isDragging = true;
             startX = e.clientX;
             startY = e.clientY;
@@ -910,8 +1046,8 @@ html_code = f"""
             if (!isDragging) return;
             let dx = e.clientX - startX;
             let dy = e.clientY - startY;
-            let newX = Math.max(5, Math.min(1080, origX + dx));
-            let newY = Math.max(5, Math.min(710, origY + dy));
+            let newX = Math.max(5, Math.min(1100, origX + dx));
+            let newY = Math.max(5, Math.min(730, origY + dy));
             element.style.left = newX + 'px';
             element.style.top = newY + 'px';
         }}
@@ -926,6 +1062,96 @@ html_code = f"""
         }}
     }}
 
+    function printFloorPlan() {{
+        saveState();
+        let planDoc = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>Hall Floor Plan</title>
+        <style>
+            @page {{ size: A4 landscape; margin: 8mm; }}
+            body {{ font-family: sans-serif; margin: 0; padding: 10px; color: #111; }}
+            h2 {{ text-align: center; margin: 0 0 10px 0; font-size: 14pt; letter-spacing: 2px; }}
+            .canvas-print {{
+                width: 1050px;
+                height: 750px;
+                border: 3px solid #111;
+                position: relative;
+                margin: 0 auto;
+                background: #FFF;
+            }}
+            .rt-print {{
+                width: 95px;
+                height: 95px;
+                border-radius: 50%;
+                border: 2px solid #111;
+                position: absolute;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                align-items: center;
+                text-align: center;
+                font-size: 8pt;
+                font-weight: bold;
+            }}
+            .item-print {{
+                position: absolute;
+                background: #111;
+                color: #FFF;
+                border: 1px solid #000;
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                font-weight: bold;
+                font-size: 9pt;
+                text-transform: uppercase;
+                letter-spacing: 1px;
+            }}
+        </style>
+        </head>
+        <body>
+        <h2>BALL COMMITTEE — HALL FLOOR PLAN</h2>
+        <div class="canvas-print">
+        `;
+
+        activeTableIds.forEach(i => {{
+            const z = document.getElementById('zone-table-' + i);
+            let count = 0;
+            if (z) {{
+                Array.from(z.children).forEach(c => {{
+                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
+                }});
+            }}
+            const pos = tablePositions[i] || {{ x: 40, y: 70 }};
+            planDoc += `
+                <div class="rt-print" style="left: ${{pos.x}}px; top: ${{pos.y}}px;">
+                    <div>T-${{i < 10 ? '0' + i : i}}</div>
+                    <div style="font-size: 6pt; color: #555;">${{tableNames[i] || ''}}</div>
+                    <div style="font-size: 6pt;">${{count}}/${{maxCapacity}}</div>
+                </div>
+            `;
+        }});
+
+        hallItems.forEach(item => {{
+            planDoc += `
+                <div class="item-print" style="left: ${{item.x}}px; top: ${{item.y}}px; width: ${{item.w || 220}}px; height: ${{item.h || 75}}px;">
+                    ${{item.text}}
+                </div>
+            `;
+        }});
+
+        planDoc += `</div></body></html>`;
+
+        const w = window.open('', '_blank');
+        if (w) {{
+            w.document.write(planDoc);
+            w.document.close();
+            setTimeout(() => w.print(), 350);
+        }}
+    }}
+
     // ==========================================
     // PERSISTENCE & STORAGE
     // ==========================================
@@ -934,16 +1160,19 @@ html_code = f"""
             const state = {{
                 guestMap: guestMap,
                 bundles: bundles,
+                activeTableIds: activeTableIds,
                 tableNames: tableNames,
                 tablePositions: tablePositions,
                 hallItems: hallItems,
                 pool: Array.from(poolZone.children).map(c => ({{ type: c.classList.contains('bundle-card') ? 'bundle' : 'guest', id: c.id }})),
                 tables: {{}}
             }};
-            for (let i = 1; i <= 20; i++) {{
+            activeTableIds.forEach(i => {{
                 const z = document.getElementById('zone-table-' + i);
-                state.tables[i] = Array.from(z.children).map(c => ({{ type: c.classList.contains('bundle-card') ? 'bundle' : 'guest', id: c.id }}));
-            }}
+                if (z) {{
+                    state.tables[i] = Array.from(z.children).map(c => ({{ type: c.classList.contains('bundle-card') ? 'bundle' : 'guest', id: c.id }}));
+                }}
+            }});
             localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
         }} catch(e) {{}}
     }}
@@ -961,20 +1190,21 @@ html_code = f"""
             }}
 
             bundles = state.bundles || {{}};
+            if (state.activeTableIds && state.activeTableIds.length > 0) {{
+                activeTableIds = state.activeTableIds;
+            }}
+            tableNames = state.tableNames || tableNames;
             tablePositions = state.tablePositions || tablePositions;
             hallItems = state.hallItems || [];
 
-            if (state.tableNames) {{
-                tableNames = state.tableNames;
-                for (let i = 1; i <= 20; i++) {{
-                    const el = document.getElementById('tbl-input-' + i);
-                    if (el && tableNames[i]) el.value = tableNames[i];
-                }}
-            }}
+            rebuildTableGrid();
 
             const placed = new Set();
             poolZone.innerHTML = '';
-            for (let i = 1; i <= 20; i++) document.getElementById('zone-table-' + i).innerHTML = '';
+            activeTableIds.forEach(i => {{
+                const z = document.getElementById('zone-table-' + i);
+                if (z) z.innerHTML = '';
+            }});
 
             if (state.pool) {{
                 state.pool.forEach(item => {{
@@ -989,18 +1219,20 @@ html_code = f"""
             }}
 
             if (state.tables) {{
-                for (let i = 1; i <= 20; i++) {{
+                activeTableIds.forEach(i => {{
                     const z = document.getElementById('zone-table-' + i);
-                    (state.tables[i] || []).forEach(item => {{
-                        if (item.type === 'bundle' && bundles[item.id]) {{
-                            z.appendChild(createBundleCard(item.id, bundles[item.id]));
-                            (bundles[item.id].members || []).forEach(id => placed.add(id));
-                        }} else if (item.type === 'guest' && guestMap[item.id]) {{
-                            z.appendChild(createGuestCard(guestMap[item.id]));
-                            placed.add(item.id);
-                        }}
-                    }});
-                }}
+                    if (z) {{
+                        (state.tables[i] || []).forEach(item => {{
+                            if (item.type === 'bundle' && bundles[item.id]) {{
+                                z.appendChild(createBundleCard(item.id, bundles[item.id]));
+                                (bundles[item.id].members || []).forEach(id => placed.add(id));
+                            }} else if (item.type === 'guest' && guestMap[item.id]) {{
+                                z.appendChild(createGuestCard(guestMap[item.id]));
+                                placed.add(item.id);
+                            }}
+                        }});
+                    }}
+                }});
             }}
 
             Object.values(guestMap).forEach(g => {{
@@ -1046,6 +1278,8 @@ html_code = f"""
 
         saveState();
     }}
+
+    rebuildTableGrid();
 
     if (!loadState()) {{
         if (Object.keys(guestMap).length > 0) {{
@@ -1124,7 +1358,7 @@ html_code = f"""
         }});
         document.getElementById('pool-count').innerText = pCount;
 
-        for (let i = 1; i <= 20; i++) {{
+        activeTableIds.forEach(i => {{
             const z = document.getElementById('zone-table-' + i);
             let count = 0;
             if (z) {{
@@ -1137,11 +1371,11 @@ html_code = f"""
                 counter.innerText = `${{count}}/${{maxCapacity}}`;
                 counter.style.color = count > maxCapacity ? '#DC2626' : (count === maxCapacity ? '#16A34A' : '#6B7280');
             }}
-        }}
+        }});
     }}
 
     function resetLayout() {{
-        if (confirm("Reset all seating positions and floor plan positions?")) {{
+        if (confirm("Reset all seating positions, extra tables, and floor plan positions?")) {{
             localStorage.removeItem(STORAGE_KEY);
             location.reload();
         }}
@@ -1150,27 +1384,29 @@ html_code = f"""
     function exportCards() {{
         saveState();
         const rows = [["Table", "Seat", "Guest Name", "Committee", "Dietary", "Preferences"]];
-        for (let i = 1; i <= 20; i++) {{
+        activeTableIds.forEach(i => {{
             const tName = tableNames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
             const z = document.getElementById('zone-table-' + i);
             let seat = 1;
-            Array.from(z.children).forEach(child => {{
-                const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
-                ids.forEach(id => {{
-                    const g = guestMap[id];
-                    if (g) {{
-                        rows.push([
-                            `"${{tName.replace(/"/g, '""')}}"`,
-                            seat++,
-                            `"${{g.name.replace(/"/g, '""')}}"`,
-                            `"${{(g.committee || '').replace(/"/g, '""')}}"`,
-                            `"${{(g.dietary || '').replace(/"/g, '""')}}"`,
-                            `"${{[g.pref1, g.pref2].filter(Boolean).join(' & ').replace(/"/g, '""')}}"`
-                        ]);
-                    }}
+            if (z) {{
+                Array.from(z.children).forEach(child => {{
+                    const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
+                    ids.forEach(id => {{
+                        const g = guestMap[id];
+                        if (g) {{
+                            rows.push([
+                                `"${{tName.replace(/"/g, '""')}}"`,
+                                seat++,
+                                `"${{g.name.replace(/"/g, '""')}}"`,
+                                `"${{(g.committee || '').replace(/"/g, '""')}}"`,
+                                `"${{(g.dietary || '').replace(/"/g, '""')}}"`,
+                                `"${{[g.pref1, g.pref2].filter(Boolean).join(' & ').replace(/"/g, '""')}}"`
+                            ]);
+                        }}
+                    }});
                 }});
-            }});
-        }}
+            }}
+        }});
         const csv = "\\uFEFF" + rows.map(r => r.join(";")).join("\\r\\n");
         const blob = new Blob([csv], {{ type: "text/csv;charset=utf-8;" }});
         const a = document.createElement("a");
@@ -1181,9 +1417,6 @@ html_code = f"""
         document.body.removeChild(a);
     }}
 
-    // ==========================================
-    // CLEAR STRUCTURED TABLE & ALLERGIES PRINTOUT
-    // ==========================================
     function exportPdf() {{
         saveState();
         let doc = `
@@ -1213,7 +1446,7 @@ html_code = f"""
         <div class="tables-container">
         `;
 
-        for (let i = 1; i <= 20; i++) {{
+        activeTableIds.forEach(i => {{
             const tName = tableNames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
             const z = document.getElementById('zone-table-' + i);
             const cnt = document.getElementById('t-count-' + i) ? document.getElementById('t-count-' + i).innerText : '';
@@ -1248,7 +1481,7 @@ html_code = f"""
                 doc += `<div style="font-size: 7.5pt; color: #9CA3AF; font-style: italic; padding: 4px 0;">No guests assigned yet.</div>`;
             }}
             doc += `</div>`;
-        }}
+        }});
 
         doc += `</div></body></html>`;
 
