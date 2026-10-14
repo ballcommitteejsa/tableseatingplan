@@ -424,6 +424,10 @@ html_code = f"""
         overflow: hidden;
         text-overflow: ellipsis;
         flex: 1;
+        cursor: pointer;
+    }}
+    .guest-name:hover {{
+        text-decoration: underline;
     }}
     .pref-text {{
         font-size: 0.65rem;
@@ -479,9 +483,7 @@ html_code = f"""
         border-radius: 2px;
     }}
 
-    /* ==========================================
-       FLOOR PLAN VIEW
-       ========================================== */
+    /* FLOOR PLAN VIEW */
     #floorplan-view {{
         display: none;
         width: 100%;
@@ -646,7 +648,7 @@ html_code = f"""
     <div style="display: flex; align-items: center; gap: 6px;">
         <span style="font-weight: 600;">Manage Tables:</span>
         <button class="btn" onclick="addNewTable()" style="background: #2563EB;">+ Add Table</button>
-        <span style="color: #6B7280; font-size: 0.72rem;">(Click [✕] on any table to remove it)</span>
+        <span style="color: #6B7280; font-size: 0.72rem;">(Tip: Double click any guest name to edit it!)</span>
     </div>
 </div>
 
@@ -793,6 +795,27 @@ html_code = f"""
     }}
 
     // ==========================================
+    // NAAM AANPASSEN VIA DUBBELKLIK
+    // ==========================================
+    function editGuestName(guestId) {{
+        const g = guestMap[guestId];
+        if (!g) return;
+        const newName = prompt("Edit guest name:", g.name);
+        if (newName && newName.trim() && newName.trim() !== g.name) {{
+            g.name = newName.trim();
+            const cardEl = document.getElementById(guestId);
+            if (cardEl) {{
+                const nameSpan = cardEl.querySelector('.guest-name');
+                if (nameSpan) {{
+                    nameSpan.innerText = g.name;
+                    nameSpan.title = g.name;
+                }}
+            }}
+            saveState();
+        }}
+    }}
+
+    // ==========================================
     // CARD CREATION
     // ==========================================
     function createGuestCard(g) {{
@@ -814,7 +837,7 @@ html_code = f"""
         div.innerHTML = `
             <div class="guest-top">
                 <input type="checkbox" onchange="toggleSelect(event, '${{g.id}}')" style="cursor: pointer; margin: 0 4px 0 0;">
-                <span class="guest-name" title="${{g.name}}">${{g.name}}</span>
+                <span class="guest-name" title="Double click to edit: ${{g.name}}" ondblclick="editGuestName('${{g.id}}')">${{g.name}}</span>
                 ${{comm}}
             </div>
             ${{prefText}}
@@ -1121,7 +1144,7 @@ html_code = f"""
             let count = 0;
             if (z) {{
                 Array.from(z.children).forEach(c => {{
-                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
+                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members : []) : [c.id];
                 }});
             }}
             const pos = tablePositions[i] || {{ x: 40, y: 70 }};
@@ -1499,7 +1522,6 @@ html_code = f"""
 
 components.html(html_code, height=1400, scrolling=True)
 
-# Keukenoverzicht onderaan
 if parsed_guests:
     st.markdown("---")
     st.markdown("### Kitchen Dietary Overview")
