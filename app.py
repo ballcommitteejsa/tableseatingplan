@@ -602,4 +602,611 @@ __GUESTS_JSON__
 <!-- TOP CONTROL BAR -->
 <div class="top-action-bar">
     <div style="display: flex; align-items: center;">
-        <span style="font-
+        <span style="font-weight: bold; font-size: 0.9rem;">🎯 SEATING STUDIO</span>
+        &nbsp;&nbsp;
+        <span id="save-status" class="status-badge">⚡ Auto-save active</span>
+    </div>
+    <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 4px;">
+        <span id="selected-count-label" style="font-size: 0.8rem; margin-right: 8px; color: #D1D5DB;">0 guests selected</span>
+        <button class="group-btn" id="groupBtn" onclick="bundleSelectedGuests()" disabled>🔗 Group as 1 Block</button>
+        <button class="action-btn excel-btn" onclick="exportToExcelCards()" title="Download Excel sorted by table for place cards">📊 Export Excel (Place Cards)</button>
+        <button class="action-btn pdf-btn" onclick="exportToCleanPdf()" title="Print or save as A4 PDF">📄 Save as PDF (A4)</button>
+        <button class="action-btn" onclick="saveToBrowser(true)" title="Save arrangement manually">💾 Save</button>
+        <button class="action-btn" onclick="resetBrowserStorage()" title="Reset layout and start fresh">🔄 Reset Layout</button>
+    </div>
+</div>
+
+<!-- ADD GUEST MANUALLY PANEL -->
+<div class="add-guest-card">
+    <span style="font-weight: bold;">➕ Add Guest Manually:</span>
+    <input type="text" id="manualName" placeholder="Full Name (required)" style="flex: 2;">
+    <input type="text" id="manualComm" placeholder="Committee (optional)" style="flex: 1;">
+    <input type="text" id="manualDiet" placeholder="Dietary / Allergy (optional)" style="flex: 1;">
+    <button class="action-btn" onclick="addManualGuest()" style="background: #111111; padding: 5px 12px; margin: 0;">➕ Add Guest</button>
+</div>
+
+<!-- UNASSIGNED QUEUE -->
+<details class="pool-tray" open>
+    <summary>
+        <span>📥 UNASSIGNED GUESTS POOL (<span id="unassigned-count">0</span>) — Click to expand/collapse</span>
+        <span style="font-size: 0.78rem; font-weight: normal; color: #6B7280;">Check guests to group them or drag directly to a table</span>
+    </summary>
+    <div class="pool-cards-container" id="pool-zone" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'pool')" ondragleave="dragLeave(event)">
+    </div>
+</details>
+
+<!-- 20 TABLES GRID -->
+<div class="tables-grid-20" id="tables-grid">
+</div>
+
+<script>
+    const STORAGE_KEY = "BALL_COMMITTEE_SEATING_STATE_V2";
+    const tableMaxCapacity = __MAX_CAPACITY__;
+    const rawDataText = document.getElementById('guests-raw-data').textContent;
+    let initialGuests = [];
+    try {
+        initialGuests = JSON.parse(rawDataText);
+    } catch(err) {
+        console.error("Could not parse guestlist JSON:", err);
+    }
+
+    let guestMap = {};
+    initialGuests.forEach(g => guestMap[g.id] = g);
+
+    let selectedGuestIds = new Set();
+    let bundles = {};
+    let tableNicknames = {};
+    let draggedElementId = null;
+
+    // Initialize default table names
+    for (let i = 1; i <= 20; i++) {
+        tableNicknames[i] = "TABLE " + (i < 10 ? '0' + i : i);
+    }
+
+    // Build 20 tables with editable titles
+    const grid = document.getElementById('tables-grid');
+    for (let i = 1; i <= 20; i++) {
+        const tCol = document.createElement('div');
+        tCol.className = 'table-column';
+        tCol.innerHTML = `
+            <div class="table-header">
+                <input type="text" class="table-name-input" id="tbl-name-${i}" value="${tableNicknames[i]}" onchange="updateTableName(${i}, this.value)" title="Click to edit table name or nickname">
+                <span id="t-count-${i}" style="color: #6B7280;">0/${tableMaxCapacity}</span>
+            </div>
+            <div class="table-dropzone" id="zone-table-${i}" ondragover="allowDrop(event)" ondrop="handleDrop(event, 'zone-table-${i}')" ondragleave="dragLeave(event)">
+            </div>
+        `;
+        grid.appendChild(tCol);
+    }
+
+    function updateTableName(tableIndex, newName) {
+        tableNicknames[tableIndex] = newName.trim() || ("TABLE " + (tableIndex < 10 ? '0' + tableIndex : tableIndex));
+        saveToBrowser();
+    }
+
+    function renderGuestCard(g) {
+        const div = document.createElement('div');
+        div.className = 'guest-item';
+        div.id = g.id;
+        div.draggable = true;
+        div.ondragstart = (e) => dragStart(e, g.id);
+
+        let commTag = g.committee ? `<span class="tag-comm">${g.committee}</span>` : '';
+        let dietTag = g.dietary ? `<div class="tag-diet">⚠️ ${g.dietary}</div>` : '';
+
+        let prefs = [];
+        if (g.pref1) prefs.push(g.pref1);
+        if (g.pref2) prefs.push(g.pref2);
+        let prefText = '';
+        if (prefs.length > 0) {
+            prefText = `<div class="pref-line" title="Preferences: ${prefs.join(', ')}">👉 ${prefs.join(' & ')}</div>`;
+        }
+
+        div.innerHTML = `
+            <div class="guest-top-row">
+                <input type="checkbox" onchange="toggleSelect(event, '${g.id}')" style="cursor: pointer; margin: 0 4px 0 0;">
+                <span class="guest-name" title="${g.name}">${g.name}</span>
+                ${commTag}
+            </div>
+            ${prefText}
+            ${dietTag}
+        `;
+        return div;
+    }
+
+    function renderBundleCard(bundleId, memberIds) {
+        const bundleDiv = document.createElement('div');
+        bundleDiv.className = 'bundle-item';
+        bundleDiv.id = bundleId;
+        bundleDiv.draggable = true;
+        bundleDiv.ondragstart = (e) => dragStart(e, bundleId);
+
+        let namesList = memberIds.map(mid => guestMap[mid] ? guestMap[mid].name : mid).join(', ');
+
+        bundleDiv.innerHTML = `
+            <div class="bundle-header">
+                <span>👥 GROUP (${memberIds.length} pers.)</span>
+                <button class="ungroup-btn" onclick="ungroupBundle('${bundleId}')">✂️ Ungroup</button>
+            </div>
+            <div style="font-size: 0.72rem; font-weight: 600; color: #713F12;">${namesList}</div>
+        `;
+        return bundleDiv;
+    }
+
+    const poolZone = document.getElementById('pool-zone');
+
+    // ==========================================
+    // ADD GUEST MANUALLY
+    // ==========================================
+    function addManualGuest() {
+        const nameField = document.getElementById('manualName');
+        const commField = document.getElementById('manualComm');
+        const dietField = document.getElementById('manualDiet');
+
+        const name = nameField.value.trim();
+        if (!name) {
+            alert("Please enter a guest name!");
+            return;
+        }
+
+        const newId = "manual_" + Date.now();
+        const newGuest = {
+            id: newId,
+            name: name,
+            committee: commField.value.trim(),
+            pref1: "",
+            pref2: "",
+            dietary: dietField.value.trim()
+        };
+
+        guestMap[newId] = newGuest;
+        poolZone.appendChild(renderGuestCard(newGuest));
+
+        nameField.value = "";
+        commField.value = "";
+        dietField.value = "";
+
+        updateCounters();
+        saveToBrowser();
+    }
+
+    // ==========================================
+    // EXCEL / CSV EXPORT FOR PLACE CARDS
+    // ==========================================
+    function exportToExcelCards() {
+        saveToBrowser();
+        const rows = [];
+
+        for (let i = 1; i <= 20; i++) {
+            const tName = tableNicknames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
+            const zone = document.getElementById('zone-table-' + i);
+            let seat = 1;
+
+            Array.from(zone.children).forEach(child => {
+                if (child.classList.contains('guest-item')) {
+                    const g = guestMap[child.id];
+                    if (g) {
+                        rows.push({
+                            "Table": tName,
+                            "Seat": seat++,
+                            "Guest Name": g.name,
+                            "Committee": g.committee || "",
+                            "Dietary / Allergy": g.dietary || "",
+                            "Preferences": [g.pref1, g.pref2].filter(Boolean).join(" & ")
+                        });
+                    }
+                } else if (child.classList.contains('bundle-item')) {
+                    const memberIds = bundles[child.id] || [];
+                    memberIds.forEach(mid => {
+                        const g = guestMap[mid];
+                        if (g) {
+                            rows.push({
+                                "Table": tName,
+                                "Seat": seat++,
+                                "Guest Name": g.name,
+                                "Committee": g.committee || "",
+                                "Dietary / Allergy": g.dietary || "",
+                                "Preferences": [g.pref1, g.pref2].filter(Boolean).join(" & ")
+                            });
+                        }
+                    });
+                }
+            });
+        }
+
+        if (rows.length === 0) {
+            alert("No guests have been placed at any table yet!");
+            return;
+        }
+
+        // Try SheetJS first; fallback to clean UTF-8 CSV with BOM for Excel
+        if (window.XLSX && XLSX.utils) {
+            try {
+                const ws = XLSX.utils.json_to_sheet(rows);
+                ws['!cols'] = [{wch: 22}, {wch: 8}, {wch: 26}, {wch: 18}, {wch: 20}, {wch: 24}];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "Place Cards");
+                XLSX.writeFile(wb, "Guestlist_Place_Cards_By_Table.xlsx");
+                return;
+            } catch(e) {
+                console.warn("SheetJS export failed, falling back to CSV", e);
+            }
+        }
+
+        // CSV Fallback
+        const headers = ["Table", "Seat", "Guest Name", "Committee", "Dietary / Allergy", "Preferences"];
+        const csvContent = "\uFEFF" + [
+            headers.join(";"),
+            ...rows.map(r => [
+                `"${r["Table"]}"`,
+                r["Seat"],
+                `"${r["Guest Name"]}"`,
+                `"${r["Committee"]}"`,
+                `"${r["Dietary / Allergy"]}"`,
+                `"${r["Preferences"]}"`
+            ].join(";"))
+        ].join("\r\n");
+
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = "Guestlist_Place_Cards_By_Table.csv";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    }
+
+    // ==========================================
+    // BROWSER LOCALSTORAGE AUTO-SAVE & RESTORE
+    // ==========================================
+    function saveToBrowser(manual = false) {
+        const state = {
+            bundles: bundles,
+            tableNicknames: tableNicknames,
+            customGuests: Object.values(guestMap).filter(g => g.id.startsWith("manual_")),
+            pool: [],
+            tables: {}
+        };
+
+        Array.from(poolZone.children).forEach(el => {
+            if (el.classList.contains('bundle-item')) {
+                state.pool.push({ type: 'bundle', id: el.id });
+            } else if (el.classList.contains('guest-item')) {
+                state.pool.push({ type: 'guest', id: el.id });
+            }
+        });
+
+        for (let i = 1; i <= 20; i++) {
+            const zone = document.getElementById('zone-table-' + i);
+            state.tables[i] = [];
+            Array.from(zone.children).forEach(el => {
+                if (el.classList.contains('bundle-item')) {
+                    state.tables[i].push({ type: 'bundle', id: el.id });
+                } else if (el.classList.contains('guest-item')) {
+                    state.tables[i].push({ type: 'guest', id: el.id });
+                }
+            });
+        }
+
+        try {
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+            const statusEl = document.getElementById('save-status');
+            statusEl.innerText = manual ? '✅ Saved to browser!' : '⚡ Saved';
+            setTimeout(() => { statusEl.innerText = '⚡ Auto-save active'; }, 2000);
+        } catch(e) {
+            console.error("Error saving to localStorage", e);
+        }
+    }
+
+    function loadFromBrowser() {
+        const savedText = localStorage.getItem(STORAGE_KEY);
+        if (!savedText) return false;
+
+        try {
+            const state = JSON.parse(savedText);
+            bundles = state.bundles || {};
+
+            if (state.customGuests) {
+                state.customGuests.forEach(g => {
+                    guestMap[g.id] = g;
+                });
+            }
+
+            if (state.tableNicknames) {
+                tableNicknames = state.tableNicknames;
+                for (let i = 1; i <= 20; i++) {
+                    const inputEl = document.getElementById('tbl-name-' + i);
+                    if (inputEl && tableNicknames[i]) {
+                        inputEl.value = tableNicknames[i];
+                    }
+                }
+            }
+
+            poolZone.innerHTML = '';
+            for (let i = 1; i <= 20; i++) {
+                document.getElementById('zone-table-' + i).innerHTML = '';
+            }
+
+            const placedIds = new Set();
+
+            if (state.pool) {
+                state.pool.forEach(item => {
+                    if (item.type === 'bundle' && bundles[item.id]) {
+                        poolZone.appendChild(renderBundleCard(item.id, bundles[item.id]));
+                        bundles[item.id].forEach(gid => placedIds.add(gid));
+                    } else if (item.type === 'guest' && guestMap[item.id]) {
+                        poolZone.appendChild(renderGuestCard(guestMap[item.id]));
+                        placedIds.add(item.id);
+                    }
+                });
+            }
+
+            if (state.tables) {
+                for (let i = 1; i <= 20; i++) {
+                    const zone = document.getElementById('zone-table-' + i);
+                    (state.tables[i] || []).forEach(item => {
+                        if (item.type === 'bundle' && bundles[item.id]) {
+                            zone.appendChild(renderBundleCard(item.id, bundles[item.id]));
+                            bundles[item.id].forEach(gid => placedIds.add(gid));
+                        } else if (item.type === 'guest' && guestMap[item.id]) {
+                            zone.appendChild(renderGuestCard(guestMap[item.id]));
+                            placedIds.add(item.id);
+                        }
+                    });
+                }
+            }
+
+            Object.values(guestMap).forEach(g => {
+                if (!placedIds.has(g.id)) {
+                    poolZone.appendChild(renderGuestCard(g));
+                }
+            });
+
+            return true;
+        } catch(e) {
+            console.error("Error loading from localStorage", e);
+            return false;
+        }
+    }
+
+    function resetBrowserStorage() {
+        if (confirm("Are you sure you want to reset all seating arrangements and start fresh?")) {
+            localStorage.removeItem(STORAGE_KEY);
+            location.reload();
+        }
+    }
+
+    // ==========================================
+    // PDF PRINT EXPORT
+    // ==========================================
+    function exportToCleanPdf() {
+        saveToBrowser();
+        
+        let printDocHtml = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>Ball Committee — Banquet Seating Chart</title>
+        <style>
+            @page { size: A4 landscape; margin: 8mm; }
+            body { font-family: -apple-system, BlinkMacSystemFont, Arial, sans-serif; margin: 0; padding: 10px; color: #111; }
+            h1 { text-align: center; font-size: 15pt; margin-bottom: 4px; letter-spacing: 2px; }
+            p.sub { text-align: center; font-size: 8pt; color: #666; margin-top: 0; margin-bottom: 12px; }
+            .grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+            .table-box { border: 1.5px solid #111; border-radius: 4px; padding: 6px; page-break-inside: avoid; break-inside: avoid; background: #fff; }
+            .table-title { font-weight: bold; font-size: 8.5pt; border-bottom: 1.5px solid #111; padding-bottom: 4px; margin-bottom: 5px; display: flex; justify-content: space-between; }
+            .guest-row { font-size: 7.2pt; padding: 3px 0; border-bottom: 1px dotted #ccc; display: flex; justify-content: space-between; }
+            .guest-name { font-weight: 600; }
+            .pref { font-size: 6.2pt; color: #555; }
+            .diet { font-size: 6.2pt; color: #b45309; font-weight: bold; }
+            .comm { font-size: 6.2pt; color: #1e40af; font-weight: bold; }
+        </style>
+        </head>
+        <body>
+        <h1>BALL COMMITTEE — BANQUET SEATING PLAN</h1>
+        <p class="sub">Official Banquet Seating Layout • Complete 20-Table Overview</p>
+        <div class="grid">
+        `;
+
+        for (let i = 1; i <= 20; i++) {
+            const tName = tableNicknames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
+            const zone = document.getElementById('zone-table-' + i);
+            const countEl = document.getElementById('t-count-' + i);
+            const count = countEl ? countEl.innerText : '';
+
+            printDocHtml += `<div class="table-box">`;
+            printDocHtml += `<div class="table-title"><span>${tName}</span><span>${count}</span></div>`;
+
+            if (zone && zone.children.length > 0) {
+                let seat = 1;
+                Array.from(zone.children).forEach(child => {
+                    if (child.classList.contains('guest-item')) {
+                        const name = child.querySelector('.guest-name') ? child.querySelector('.guest-name').innerText : '';
+                        const pref = child.querySelector('.pref-line') ? child.querySelector('.pref-line').innerText : '';
+                        const diet = child.querySelector('.tag-diet') ? child.querySelector('.tag-diet').innerText : '';
+                        const comm = child.querySelector('.tag-comm') ? child.querySelector('.tag-comm').innerText : '';
+
+                        printDocHtml += `<div class="guest-row">
+                            <div><b>${seat++}.</b> ${name} ${comm ? '<span class="comm">['+comm+']</span>' : ''} ${diet ? '<span class="diet">['+diet+']</span>' : ''}<br><span class="pref">${pref}</span></div>
+                        </div>`;
+                    } else if (child.classList.contains('bundle-item')) {
+                        const text = child.innerText.replace('✂️ Ungroup', '').trim();
+                        printDocHtml += `<div class="guest-row" style="background:#fef9c3;"><div><b>[GROUP]</b> ${text}</div></div>`;
+                    }
+                });
+            } else {
+                printDocHtml += `<div style="font-size:7pt; color:#999; font-style:italic; padding: 4px 0;">No guests assigned</div>`;
+            }
+            printDocHtml += `</div>`;
+        }
+
+        printDocHtml += `</div></body></html>`;
+
+        const printWin = window.open('', '_blank');
+        if (printWin) {
+            printWin.document.write(printDocHtml);
+            printWin.document.close();
+            setTimeout(() => {
+                printWin.print();
+            }, 400);
+        } else {
+            window.print();
+        }
+    }
+
+    const restored = loadFromBrowser();
+    if (!restored) {
+        if (initialGuests.length > 0) {
+            initialGuests.forEach(g => {
+                poolZone.appendChild(renderGuestCard(g));
+            });
+        } else {
+            poolZone.innerHTML = '<div style="font-size: 0.85rem; color: #9CA3AF; padding: 12px; font-style: italic;">No guestlist loaded yet. Please upload an Excel file above and click Load.</div>';
+        }
+    }
+    updateCounters();
+
+    function toggleSelect(e, gid) {
+        e.stopPropagation();
+        if (e.target.checked) {
+            selectedGuestIds.add(gid);
+            document.getElementById(gid).classList.add('is-selected');
+        } else {
+            selectedGuestIds.delete(gid);
+            document.getElementById(gid).classList.remove('is-selected');
+        }
+        
+        const btn = document.getElementById('groupBtn');
+        const lbl = document.getElementById('selected-count-label');
+        const cnt = selectedGuestIds.size;
+        lbl.innerText = `${cnt} guests selected`;
+        btn.disabled = cnt < 2;
+        btn.innerText = cnt >= 2 ? `🔗 Group as 1 Block (${cnt} pers.)` : `🔗 Group as 1 Block`;
+    }
+
+    function bundleSelectedGuests() {
+        if (selectedGuestIds.size < 2) return;
+
+        const bundleId = 'bundle_' + Date.now();
+        const memberIds = Array.from(selectedGuestIds);
+        bundles[bundleId] = memberIds;
+
+        const firstEl = document.getElementById(memberIds[0]);
+        const targetContainer = firstEl ? firstEl.parentElement : poolZone;
+
+        memberIds.forEach(mid => {
+            const el = document.getElementById(mid);
+            if (el) el.remove();
+        });
+
+        const bundleEl = renderBundleCard(bundleId, memberIds);
+        targetContainer.appendChild(bundleEl);
+
+        selectedGuestIds.clear();
+        document.getElementById('groupBtn').disabled = true;
+        document.getElementById('selected-count-label').innerText = '0 guests selected';
+        updateCounters();
+        saveToBrowser();
+    }
+
+    function ungroupBundle(bundleId) {
+        const bundleEl = document.getElementById(bundleId);
+        if (!bundleEl) return;
+        const parent = bundleEl.parentElement;
+        const memberIds = bundles[bundleId];
+
+        memberIds.forEach(mid => {
+            if (guestMap[mid]) {
+                parent.appendChild(renderGuestCard(guestMap[mid]));
+            }
+        });
+
+        bundleEl.remove();
+        delete bundles[bundleId];
+        updateCounters();
+        saveToBrowser();
+    }
+
+    function dragStart(e, id) {
+        draggedElementId = id;
+        e.dataTransfer.setData('text/plain', id);
+    }
+
+    function allowDrop(e) {
+        e.preventDefault();
+        e.currentTarget.classList.add('drag-over');
+    }
+
+    function dragLeave(e) {
+        e.currentTarget.classList.remove('drag-over');
+    }
+
+    function handleDrop(e, targetZoneId) {
+        e.preventDefault();
+        e.currentTarget.classList.remove('drag-over');
+        if (!draggedElementId) return;
+
+        const el = document.getElementById(draggedElementId);
+        if (el) {
+            e.currentTarget.appendChild(el);
+            updateCounters();
+            saveToBrowser();
+        }
+    }
+
+    function updateCounters() {
+        let poolCount = 0;
+        Array.from(poolZone.children).forEach(child => {
+            if (child.classList && child.classList.contains('bundle-item')) {
+                poolCount += (bundles[child.id] || []).length;
+            } else if (child.classList && child.classList.contains('guest-item')) {
+                poolCount += 1;
+            }
+        });
+        document.getElementById('unassigned-count').innerText = poolCount;
+
+        for (let i = 1; i <= 20; i++) {
+            const zone = document.getElementById('zone-table-' + i);
+            let tCount = 0;
+            Array.from(zone.children).forEach(child => {
+                if (child.classList && child.classList.contains('bundle-item')) {
+                    tCount += (bundles[child.id] || []).length;
+                } else if (child.classList && child.classList.contains('guest-item')) {
+                    tCount += 1;
+                }
+            });
+            const counter = document.getElementById('t-count-' + i);
+            counter.innerText = `${tCount}/${tableMaxCapacity}`;
+            counter.style.color = tCount > tableMaxCapacity ? '#DC2626' : (tCount === tableMaxCapacity ? '#16A34A' : '#6B7280');
+            counter.style.fontWeight = tCount > tableMaxCapacity ? 'bold' : 'normal';
+        }
+    }
+</script>
+</body>
+</html>
+"""
+
+final_html = dnd_html_template.replace("__GUESTS_JSON__", guests_json_payload).replace("__MAX_CAPACITY__", str(table_max_seats))
+components.html(final_html, height=1600, scrolling=True)
+
+# ==========================================
+# 5. KITCHEN & DIETARY SERVICE BRIEFING
+# ==========================================
+if parsed_guests:
+    st.markdown("---")
+    st.markdown("### 🍽️ Kitchen & Service Dietary Briefing")
+    
+    diet_attendees = [g for g in parsed_guests if g.get('dietary')]
+    if diet_attendees:
+        df_diet = pd.DataFrame([{
+            'Guest': g['name'],
+            'Committee': g['committee'] or "Guest",
+            'Dietary / Allergy': g['dietary'],
+            'Preference 1': g['pref1'],
+            'Preference 2': g['pref2']
+        } for g in diet_attendees])
+        st.dataframe(df_diet, use_container_width=True, hide_index=True)
+    else:
+        st.info("No dietary restrictions reported in this file.")
