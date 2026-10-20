@@ -369,6 +369,8 @@ html_code = f"""
     .btn-blue:disabled {{ background: #4B5563; opacity: 0.45; cursor: not-allowed; }}
     .btn-green {{ background: #15803D; }}
     .btn-green:hover {{ background: #166534; }}
+    .btn-orange {{ background: #D97706; }}
+    .btn-orange:hover {{ background: #B45309; }}
 
     .action-bar-row {{
         background: #FFF;
@@ -766,6 +768,7 @@ html_code = f"""
         <button class="btn btn-blue" onclick="document.getElementById('csvRestoreInput').click()" title="Directly restore seating arrangement from your downloaded CSV or Excel file">Import Saved CSV/Excel</button>
         <input type="file" id="csvRestoreInput" accept=".csv, .xlsx" style="display: none;" onchange="importSavedCsvFile(event)">
         <button class="btn btn-green" onclick="exportCards()">Export Excel (Place Cards)</button>
+        <button class="btn btn-orange" onclick="exportKitchenPdf()" title="Export dedicated Kitchen Preparation & Service List">Export Kitchen List (PDF)</button>
         <button class="btn" onclick="exportPdf()">Save PDF (Tables & Allergies)</button>
         <button class="btn" onclick="resetLayout()">Reset Layout</button>
     </div>
@@ -1821,6 +1824,151 @@ html_code = f"""
     }}
 
     // =========================================================================
+    // DEDICATED KITCHEN PREPARATION & SERVICE LIST (SEPARATE EXPORT)
+    // =========================================================================
+    function exportKitchenPdf() {{
+        saveState();
+
+        // 1. Bereken totalen per allergie/dieet
+        const dietTotals = {{}};
+        let totalDietGuests = 0;
+
+        activeTableIds.forEach(i => {{
+            const z = document.getElementById('zone-table-' + i);
+            if (z) {{
+                Array.from(z.children).forEach(child => {{
+                    const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
+                    ids.forEach(id => {{
+                        const g = guestMap[id];
+                        if (g && g.dietary && g.dietary.trim().length > 0) {{
+                            const dText = g.dietary.trim();
+                            dietTotals[dText] = (dietTotals[dText] || 0) + 1;
+                            totalDietGuests++;
+                        }}
+                    }});
+                }});
+            }}
+        }});
+
+        let doc = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <meta charset="utf-8">
+        <title>Ball Banquet — Kitchen Preparation & Dietary List</title>
+        <style>
+            @page {{ size: A4 portrait; margin: 10mm; }}
+            body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; margin: 0; padding: 0; color: #111; }}
+            h1 {{ text-align: center; font-size: 16pt; margin: 0 0 2px 0; text-transform: uppercase; letter-spacing: 2px; }}
+            .sub-title {{ text-align: center; font-size: 8pt; color: #6B7280; margin-bottom: 12px; text-transform: uppercase; }}
+            
+            .summary-card {{ border: 2px solid #111; border-radius: 4px; padding: 8px 12px; margin-bottom: 14px; background: #FFF; }}
+            .summary-title {{ font-weight: 800; font-size: 9.5pt; text-transform: uppercase; border-bottom: 1.5px solid #111; padding-bottom: 4px; margin-bottom: 6px; display: flex; justify-content: space-between; }}
+            .summary-grid {{ display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }}
+            .summary-item {{ font-size: 8pt; padding: 3px 6px; background: #FEF3C7; border: 1px solid #FCD34D; border-radius: 3px; font-weight: 700; color: #92400E; display: flex; justify-content: space-between; }}
+            
+            .tables-grid {{ display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }}
+            .k-table-box {{ border: 1.5px solid #374151; border-radius: 4px; padding: 6px 8px; page-break-inside: avoid; background: #FFF; }}
+            .k-table-head {{ font-weight: 800; font-size: 8.5pt; border-bottom: 1.5px solid #111; padding-bottom: 3px; margin-bottom: 4px; display: flex; justify-content: space-between; }}
+            
+            .k-row {{ display: flex; justify-content: space-between; align-items: center; font-size: 7.5pt; padding: 2.5px 0; border-bottom: 1px dotted #E5E7EB; }}
+            .k-name {{ font-weight: 600; color: #111; }}
+            .k-diet {{ font-weight: 800; color: #DC2626; background: #FEE2E2; padding: 1px 5px; border-radius: 2px; font-size: 7pt; }}
+            .k-clear {{ font-size: 7pt; color: #10B981; font-style: italic; }}
+        </style>
+        </head>
+        <body>
+        <h1>BALL COMMITTEE — KITCHEN BRIEFING & DIETARY LIST</h1>
+        <div class="sub-title">Official Production & Table Service Breakdown</div>
+
+        <div class="summary-card">
+            <div class="summary-title">
+                <span>TOTAL KITCHEN PRODUCTION BREAKDOWN</span>
+                <span>${{totalDietGuests}} Special Plates Total</span>
+            </div>
+            <div class="summary-grid">
+        `;
+
+        if (Object.keys(dietTotals).length > 0) {{
+            Object.keys(dietTotals).sort().forEach(d => {{
+                doc += `
+                <div class="summary-item">
+                    <span>${{d}}</span>
+                    <span>${{dietTotals[d]}}x</span>
+                </div>
+                `;
+            }});
+        }} else {{
+            doc += `<div style="font-size: 8pt; color: #16A34A; grid-column: span 3; font-style: italic;">No dietary requirements or allergies reported.</div>`;
+        }}
+
+        doc += `
+            </div>
+        </div>
+
+        <h3 style="font-size: 10pt; text-transform: uppercase; margin: 0 0 8px 0; letter-spacing: 1px; border-bottom: 1px solid #111; padding-bottom: 3px;">Table-by-Table Service Sheet</h3>
+        <div class="tables-grid">
+        `;
+
+        activeTableIds.forEach(i => {{
+            const tName = tableNames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
+            const z = document.getElementById('zone-table-' + i);
+
+            const specialGuests = [];
+            let totalAtTable = 0;
+
+            if (z && z.children.length > 0) {{
+                let seatCount = 1;
+                Array.from(z.children).forEach(child => {{
+                    const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
+                    ids.forEach(id => {{
+                        const g = guestMap[id];
+                        if (g) {{
+                            totalAtTable++;
+                            if (g.dietary && g.dietary.trim().length > 0) {{
+                                specialGuests.push({{ seat: seatCount, name: g.name, dietary: g.dietary }});
+                            }}
+                        }}
+                        seatCount++;
+                    }});
+                }});
+            }}
+
+            doc += `
+            <div class="k-table-box">
+                <div class="k-table-head">
+                    <span>${{tName}}</span>
+                    <span>${{specialGuests.length}} special / ${{totalAtTable}} guests</span>
+                </div>
+            `;
+
+            if (specialGuests.length > 0) {{
+                specialGuests.forEach(sg => {{
+                    doc += `
+                    <div class="k-row">
+                        <div><b>Seat ${{sg.seat}}:</b> <span class="k-name">${{sg.name}}</span></div>
+                        <div class="k-diet">${{sg.dietary}}</div>
+                    </div>
+                    `;
+                }});
+            }} else {{
+                doc += `<div class="k-clear" style="padding: 3px 0;">Standard Menu (No Allergies)</div>`;
+            }}
+
+            doc += `</div>`;
+        }});
+
+        doc += `</div></body></html>`;
+
+        const w = window.open('', '_blank');
+        if (w) {{
+            w.document.write(doc);
+            w.document.close();
+            setTimeout(() => w.print(), 350);
+        }}
+    }}
+
+    // =========================================================================
     // CLEAR STRUCTURED TABLE & ALLERGIES PRINTOUT MET GEKLEURDE STOELEN EN NUMMERS
     // =========================================================================
     function exportPdf() {{
@@ -1857,18 +2005,17 @@ html_code = f"""
         <div class="tables-container">
         `;
 
-        // Coördinaten voor de 10 stoelen rondom een tafel (straal R=30, centrum 45, 45)
         const seatCoords = [
-            {{ x: 45.0, y: 15.0 }}, // Stoel 1 (12 uur)
-            {{ x: 62.6, y: 20.7 }}, // Stoel 2
-            {{ x: 73.5, y: 35.7 }}, // Stoel 3
-            {{ x: 73.5, y: 54.3 }}, // Stoel 4
-            {{ x: 62.6, y: 69.3 }}, // Stoel 5
-            {{ x: 45.0, y: 75.0 }}, // Stoel 6
-            {{ x: 27.4, y: 69.3 }}, // Stoel 7
-            {{ x: 16.5, y: 54.3 }}, // Stoel 8
-            {{ x: 16.5, y: 35.7 }}, // Stoel 9
-            {{ x: 27.4, y: 20.7 }}  // Stoel 10
+            {{ x: 45.0, y: 15.0 }},
+            {{ x: 62.6, y: 20.7 }},
+            {{ x: 73.5, y: 35.7 }},
+            {{ x: 73.5, y: 54.3 }},
+            {{ x: 62.6, y: 69.3 }},
+            {{ x: 45.0, y: 75.0 }},
+            {{ x: 27.4, y: 69.3 }},
+            {{ x: 16.5, y: 54.3 }},
+            {{ x: 16.5, y: 35.7 }},
+            {{ x: 27.4, y: 20.7 }}
         ];
 
         activeTableIds.forEach(i => {{
@@ -1876,7 +2023,6 @@ html_code = f"""
             const z = document.getElementById('zone-table-' + i);
             const cnt = document.getElementById('t-count-' + i) ? document.getElementById('t-count-' + i).innerText : '';
 
-            // Verzamel gasten van deze tafel in exacte stoelvolgorde (1 t/m 10)
             const tableGuests = [];
             if (z && z.children.length > 0) {{
                 Array.from(z.children).forEach(child => {{
@@ -1912,7 +2058,6 @@ html_code = f"""
                 doc += `<div style="font-size: 7pt; color: #9CA3AF; font-style: italic; padding: 4px 0;">No guests assigned yet.</div>`;
             }}
 
-            // Bouw het dynamische SVG-diagram voor deze tafel met stoelnummers en rood bij allergie
             let svgChairs = '';
             seatCoords.forEach((pt, sIdx) => {{
                 const guest = tableGuests[sIdx];
