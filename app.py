@@ -440,7 +440,7 @@ html_code = f"""
         border-radius: 3px;
         display: flex;
         flex-direction: column;
-        min-height: 280px;
+        min-height: 310px;
     }}
     .table-head {{
         padding: 4px 6px;
@@ -457,13 +457,33 @@ html_code = f"""
         background: transparent;
         font-weight: 700;
         font-size: 0.75rem;
-        width: 65%;
+        width: 60%;
         padding: 1px 2px;
     }}
     .table-input:focus {{
         border-color: #2563EB;
         background: #FFF;
         outline: none;
+    }}
+    .anchor-selector-row {{
+        background: #FAFAFA;
+        border-bottom: 1px solid #E5E7EB;
+        padding: 3px 6px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 4px;
+        font-size: 0.65rem;
+        color: #4B5563;
+    }}
+    .anchor-dropdown {{
+        font-size: 0.65rem;
+        border: 1px solid #D1D5DB;
+        border-radius: 2px;
+        background: #FFF;
+        max-width: 125px;
+        padding: 1px 2px;
+        color: #111;
     }}
     .tbl-del-btn {{
         background: transparent;
@@ -762,7 +782,7 @@ html_code = f"""
     <div style="display: flex; align-items: center; gap: 6px;">
         <span style="font-weight: 600;">Manage Tables:</span>
         <button class="btn" onclick="addNewTable()" style="background: #2563EB;">+ Add Table</button>
-        <span style="color: #6B7280; font-size: 0.72rem;">(Tip: Double click a name or dietary tag to edit it directly!)</span>
+        <span style="color: #6B7280; font-size: 0.72rem;">(Tip: Pick a 12 o'clock guest to rotate seats automatically with the clock!)</span>
     </div>
 </div>
 
@@ -792,7 +812,7 @@ html_code = f"""
 </div>
 
 <script>
-    const STORAGE_KEY = "BALL_STUDIO_STORAGE_DYNAMIC_V9";
+    const STORAGE_KEY = "BALL_STUDIO_STORAGE_DYNAMIC_V10";
     const maxCapacity = {table_max_seats};
     const rawGuests = {guests_json};
     const savedOverride = {saved_override_json};
@@ -853,11 +873,86 @@ html_code = f"""
                         <button class="tbl-del-btn" onclick="removeTable(${{i}})" title="Delete this table">✕</button>
                     </div>
                 </div>
+                <div class="anchor-selector-row">
+                    <span>12 o'clock Seat:</span>
+                    <select class="anchor-dropdown" id="anchor-select-${{i}}" onchange="rotateTableToAnchor(${{i}}, this.value)">
+                        <option value="">(Default: 1st card)</option>
+                    </select>
+                </div>
                 <div class="dropzone" id="zone-table-${{i}}" ondragover="handleDragOverZone(event)" ondrop="handleDrop(event, 'zone-table-${{i}}')" ondragleave="dragLeave(event)"></div>
             `;
             grid.appendChild(col);
         }});
         updateCounters();
+        updateAnchorDropdowns();
+    }}
+
+    function updateAnchorDropdowns() {{
+        activeTableIds.forEach(i => {{
+            const sel = document.getElementById('anchor-select-' + i);
+            const z = document.getElementById('zone-table-' + i);
+            if (!sel || !z) return;
+
+            const currentVal = sel.value;
+            sel.innerHTML = '<option value="">(Default: 1st card)</option>';
+
+            const cards = Array.from(z.children);
+            cards.forEach((child, idx) => {{
+                if (child.classList.contains('guest-card')) {{
+                    const g = guestMap[child.id];
+                    if (g) {{
+                        const opt = document.createElement('option');
+                        opt.value = child.id;
+                        opt.innerText = `${{idx + 1}}. ${{g.name}}`;
+                        sel.appendChild(opt);
+                    }}
+                }} else if (child.classList.contains('bundle-card')) {{
+                    const b = bundles[child.id];
+                    if (b && b.members) {{
+                        b.members.forEach(mId => {{
+                            const g = guestMap[mId];
+                            if (g) {{
+                                const opt = document.createElement('option');
+                                opt.value = mId;
+                                opt.innerText = `${{g.name}} (${{b.name}})`;
+                                sel.appendChild(opt);
+                            }}
+                        }});
+                    }}
+                }}
+            }});
+
+            if (currentVal && sel.querySelector(`option[value="${{currentVal}}"]`)) {{
+                sel.value = currentVal;
+            }}
+        }});
+    }}
+
+    function rotateTableToAnchor(tableId, anchorGuestId) {{
+        if (!anchorGuestId) return;
+        const z = document.getElementById('zone-table-' + tableId);
+        if (!z) return;
+
+        const cards = Array.from(z.children);
+        const targetIdx = cards.findIndex(c => {{
+            if (c.id === anchorGuestId) return true;
+            if (c.classList.contains('bundle-card')) {{
+                const b = bundles[c.id];
+                return b && b.members && b.members.includes(anchorGuestId);
+            }}
+            return false;
+        }});
+
+        if (targetIdx > 0) {{
+            const rotated = cards.slice(targetIdx).concat(cards.slice(0, targetIdx));
+            z.innerHTML = '';
+            rotated.forEach(c => z.appendChild(c));
+
+            updateCounters();
+            updateAnchorDropdowns();
+            saveState();
+            renderFloorPlan();
+        }}
     }}
 
     function addNewTable() {{
@@ -919,6 +1014,7 @@ html_code = f"""
                     nameSpan.title = "Double click to edit: " + g.name;
                 }}
             }}
+            updateAnchorDropdowns();
             saveState();
         }}
     }}
@@ -1077,6 +1173,7 @@ html_code = f"""
         if (el) {{
             el.classList.remove('dragging');
             updateCounters();
+            updateAnchorDropdowns();
             saveState();
             renderFloorPlan();
         }}
@@ -1126,6 +1223,7 @@ html_code = f"""
         document.getElementById('groupBtn').innerText = 'Group Selected in Order';
         document.getElementById('select-label').innerText = '0 selected';
         updateCounters();
+        updateAnchorDropdowns();
         saveState();
     }}
 
@@ -1140,12 +1238,10 @@ html_code = f"""
         bEl.remove();
         delete bundles[bId];
         updateCounters();
+        updateAnchorDropdowns();
         saveState();
     }}
 
-    // ==========================================
-    // CLIENT-SIDE DIRECT IMPORT OF SAVED CSV/EXCEL
-    // ==========================================
     function importSavedCsvFile(e) {{
         const file = e.target.files[0];
         if (!file) return;
@@ -1249,6 +1345,7 @@ html_code = f"""
         }});
 
         updateCounters();
+        updateAnchorDropdowns();
         saveState();
         renderFloorPlan();
         alert(`Successfully restored arrangement with ${{Object.keys(guestMap).length}} guests across ${{activeTableIds.length}} tables!`);
@@ -1442,7 +1539,7 @@ html_code = f"""
             let count = 0;
             if (z) {{
                 Array.from(z.children).forEach(c => {{
-                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members : []) : [c.id];
+                    count += c.classList.contains('bundle-card') ? (bundles[c.id] ? bundles[c.id].members.length : 0) : 1;
                 }});
             }}
             const pos = tablePositions[i] || {{ x: 40, y: 70 }};
@@ -1638,6 +1735,7 @@ html_code = f"""
         }}
     }}
     updateCounters();
+    updateAnchorDropdowns();
     renderFloorPlan();
 
     function addGuestManual() {{
@@ -1722,6 +1820,9 @@ html_code = f"""
         document.body.removeChild(a);
     }}
 
+    // =========================================================================
+    // CLEAR STRUCTURED TABLE & ALLERGIES PRINTOUT MET GEKLEURDE STOELEN EN NUMMERS
+    // =========================================================================
     function exportPdf() {{
         saveState();
         let doc = `
@@ -1756,28 +1857,35 @@ html_code = f"""
         <div class="tables-container">
         `;
 
-        const roundTableSvg = `
-        <svg width="80" height="80" viewBox="0 0 90 90">
-            <circle cx="45" cy="45" r="19" fill="#F9FAFB" stroke="#111" stroke-width="1.3" />
-            <text x="45" y="47" text-anchor="middle" font-size="6.5" font-family="sans-serif" font-weight="bold" fill="#4B5563">TABLE</text>
-            <circle cx="45.0" cy="15.0" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="62.6" cy="20.7" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="73.5" cy="35.7" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="73.5" cy="54.3" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="62.6" cy="69.3" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="45.0" cy="75.0" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="27.4" cy="69.3" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="16.5" cy="54.3" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="16.5" cy="35.7" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-            <circle cx="27.4" cy="20.7" r="6.8" fill="#FFF" stroke="#111" stroke-width="1" />
-        </svg>
-        <span style="font-size: 5.5pt; color: #6B7280; margin-top: 1px;">Seat Numbers</span>
-        `;
+        // Coördinaten voor de 10 stoelen rondom een tafel (straal R=30, centrum 45, 45)
+        const seatCoords = [
+            {{ x: 45.0, y: 15.0 }}, // Stoel 1 (12 uur)
+            {{ x: 62.6, y: 20.7 }}, // Stoel 2
+            {{ x: 73.5, y: 35.7 }}, // Stoel 3
+            {{ x: 73.5, y: 54.3 }}, // Stoel 4
+            {{ x: 62.6, y: 69.3 }}, // Stoel 5
+            {{ x: 45.0, y: 75.0 }}, // Stoel 6
+            {{ x: 27.4, y: 69.3 }}, // Stoel 7
+            {{ x: 16.5, y: 54.3 }}, // Stoel 8
+            {{ x: 16.5, y: 35.7 }}, // Stoel 9
+            {{ x: 27.4, y: 20.7 }}  // Stoel 10
+        ];
 
         activeTableIds.forEach(i => {{
             const tName = tableNames[i] || ("TABLE " + (i < 10 ? '0' + i : i));
             const z = document.getElementById('zone-table-' + i);
             const cnt = document.getElementById('t-count-' + i) ? document.getElementById('t-count-' + i).innerText : '';
+
+            // Verzamel gasten van deze tafel in exacte stoelvolgorde (1 t/m 10)
+            const tableGuests = [];
+            if (z && z.children.length > 0) {{
+                Array.from(z.children).forEach(child => {{
+                    const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
+                    ids.forEach(id => {{
+                        if (guestMap[id]) tableGuests.push(guestMap[id]);
+                    }});
+                }});
+            }}
 
             doc += `
             <div class="table-block">
@@ -1789,32 +1897,50 @@ html_code = f"""
                     <div class="guest-list-col">
             `;
 
-            let seat = 1;
-            if (z && z.children.length > 0) {{
-                Array.from(z.children).forEach(child => {{
-                    const ids = child.classList.contains('bundle-card') ? (bundles[child.id] ? bundles[child.id].members : []) : [child.id];
-                    ids.forEach(id => {{
-                        const g = guestMap[id];
-                        if (g) {{
-                            let allergyDisplay = g.dietary ? `<span class="allergy-tag">Allergy: ${{g.dietary}}</span>` : `<span class="no-allergy">None</span>`;
-                            let commDisplay = g.committee ? `<span class="guest-comm">[${{g.committee}}]</span>` : '';
-                            doc += `
-                            <div class="guest-entry">
-                                <div><b>${{seat++}}.</b> <span class="guest-primary">${{g.name}}</span> ${{commDisplay}}</div>
-                                <div>${{allergyDisplay}}</div>
-                            </div>
-                            `;
-                        }}
-                    }});
+            if (tableGuests.length > 0) {{
+                tableGuests.forEach((g, sIdx) => {{
+                    let allergyDisplay = g.dietary ? `<span class="allergy-tag">Allergy: ${{g.dietary}}</span>` : `<span class="no-allergy">None</span>`;
+                    let commDisplay = g.committee ? `<span class="guest-comm">[${{g.committee}}]</span>` : '';
+                    doc += `
+                    <div class="guest-entry">
+                        <div><b>${{sIdx + 1}}.</b> <span class="guest-primary">${{g.name}}</span> ${{commDisplay}}</div>
+                        <div>${{allergyDisplay}}</div>
+                    </div>
+                    `;
                 }});
             }} else {{
                 doc += `<div style="font-size: 7pt; color: #9CA3AF; font-style: italic; padding: 4px 0;">No guests assigned yet.</div>`;
             }}
 
+            // Bouw het dynamische SVG-diagram voor deze tafel met stoelnummers en rood bij allergie
+            let svgChairs = '';
+            seatCoords.forEach((pt, sIdx) => {{
+                const guest = tableGuests[sIdx];
+                const hasAllergy = guest && guest.dietary && guest.dietary.trim().length > 0;
+                const chairFill = hasAllergy ? '#EF4444' : '#FFFFFF';
+                const chairStroke = hasAllergy ? '#DC2626' : '#111111';
+                const textFill = hasAllergy ? '#FFFFFF' : '#111111';
+                const seatNum = sIdx + 1;
+
+                svgChairs += `
+                    <circle cx="${{pt.x}}" cy="${{pt.y}}" r="6.8" fill="${{chairFill}}" stroke="${{chairStroke}}" stroke-width="1.1" />
+                    <text x="${{pt.x}}" y="${{pt.y + 2.2}}" text-anchor="middle" font-size="5.2" font-family="sans-serif" font-weight="bold" fill="${{textFill}}">${{seatNum}}</text>
+                `;
+            }});
+
+            const tableDiagramSvg = `
+            <svg width="80" height="80" viewBox="0 0 90 90">
+                <circle cx="45" cy="45" r="18" fill="#F9FAFB" stroke="#111" stroke-width="1.3" />
+                <text x="45" y="47" text-anchor="middle" font-size="6" font-family="sans-serif" font-weight="bold" fill="#4B5563">TABLE</text>
+                ${{svgChairs}}
+            </svg>
+            <span style="font-size: 6pt; font-weight: 800; color: #111; margin-top: 1px; letter-spacing: 1px; text-transform: uppercase;">STAGE</span>
+            `;
+
             doc += `
                     </div>
                     <div class="table-diagram-col">
-                        ${{roundTableSvg}}
+                        ${{tableDiagramSvg}}
                     </div>
                 </div>
             </div>
