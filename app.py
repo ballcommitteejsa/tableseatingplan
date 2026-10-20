@@ -1,5 +1,6 @@
 import io
 import os
+import re
 import json
 import pandas as pd
 import streamlit as st
@@ -103,12 +104,12 @@ def match_committee(val):
                 return canonical
     return None
 
-def parse_guestlist(uploaded_file):
-    xls = pd.ExcelFile(uploaded_file)
+def parse_hitract_excel_dataset(file_obj):
+    xls = pd.ExcelFile(file_obj)
     valid_sheets = [s for s in xls.sheet_names if not any(x in s.lower() for x in ['översikt', 'sammanställning', 'summary', 'overview'])]
     if not valid_sheets: valid_sheets = [xls.sheet_names[-1]]
 
-    dfs = [pd.read_excel(uploaded_file, sheet_name=s).dropna(how='all') for s in valid_sheets]
+    dfs = [pd.read_excel(file_obj, sheet_name=s).dropna(how='all') for s in valid_sheets]
     df_raw = pd.concat(dfs, ignore_index=True)
     cols = [str(c).strip().lower() for c in df_raw.columns]
 
@@ -192,23 +193,110 @@ def parse_guestlist(uploaded_file):
 
     return attendees
 
+def parse_saved_export(df):
+    cols = {str(c).lower().strip(): c for c in df.columns}
+    col_tbl = next((orig for low, orig in cols.items() if 'table' in low), None)
+    col_name = next((orig for low, orig in cols.items() if 'guest' in low or 'name' in low), None)
+    col_comm = next((orig for low, orig in cols.items() if 'comm' in low), None)
+    col_diet = next((orig for low, orig in cols.items() if 'diet' in low), None)
+    col_pref = next((orig for low, orig in cols.items() if 'pref' in low), None)
+
+    table_names = {}
+    table_mapping = {}
+    active_tables = []
+    tables_data = {}
+    guest_map = {}
+
+    for idx, row in df.iterrows():
+        tbl_str = str(row.get(col_tbl, '')).strip() if col_tbl else 'TABLE 01'
+        if not tbl_str or tbl_str.lower() == 'nan': tbl_str = 'TABLE 01'
+
+        name_str = str(row.get(col_name, '')).strip() if col_name else ''
+        if not name_str or name_str.lower() == 'nan': continue
+
+        comm_str = str(row.get(col_comm, '')).strip() if col_comm and pd.notna(row.get(col_comm)) else ''
+        diet_str = str(row.get(col_diet, '')).strip() if col_diet and pd.notna(row.get(col_diet)) else ''
+        pref_str = str(row.get(col_pref, '')).strip() if col_pref and pd.notna(row.get(col_pref)) else ''
+
+        if tbl_str not in table_mapping:
+            nums = re.findall(r'\d+', tbl_str)
+            t_id = int(nums[0]) if nums else (len(active_tables) + 1)
+            while t_id in active_tables:
+                t_id += 1
+            active_tables.append(t_id)
+            active_tables.sort()
+            table_mapping[tbl_str] = t_id
+            table_names[t_id] = tbl_str
+            tables_data[t_id] = []
+
+        t_id = table_mapping[tbl_str]
+        g_id = f"g_{t_id}_{idx}"
+        prefs = [p.strip() for p in pref_str.split('&') if p.strip()] if pref_str else []
+
+        g_obj = {
+            'id': g_id,
+            'name': name_str,
+            'committee': comm_str,
+            'dietary': diet_str,
+            'pref1': prefs[0] if len(prefs) > 0 else '',
+            'pref2': prefs[1] if len(prefs) > 1 else ''
+        }
+        guest_map[g_id] = g_obj
+        tables_data[t_id].append({'type': 'guest', 'id': g_id})
+
+    return active_tables, table_names, tables_data, guest_map
+
 # ==========================================
-# UPLOAD BALK
+# UPLOAD BALK (STEUNT HITRACT & SAVED EXPORT)
 # ==========================================
 col_up1, col_up2 = st.columns([3, 1])
 
 with col_up1:
-    uploaded_file = st.file_uploader("Upload Hitract Guestlist (.xlsx)", type=["xlsx"], label_visibility="collapsed")
+    uploaded_file = st.file_uploader(
+        "Upload Hitract Excel (.xlsx) OR Your Saved Seating Export (.csv / .xlsx)", 
+        type=["xlsx", "csv"], 
+        label_visibility="collapsed"
+    )
 
 with col_up2:
     table_max_seats = st.number_input("Seats per table", min_value=4, max_value=25, value=10, step=1)
 
 parsed_guests = []
+saved_layout_override = None
+
 if uploaded_file is not None:
-    parsed_guests = parse_guestlist(uploaded_file)
-    st.caption(f"Loaded {len(parsed_guests)} guests from {uploaded_file.name}")
+    fname = uploaded_file.name.lower()
+    try:
+        if fname.endswith('.csv'):
+            raw_bytes = uploaded_file.read()
+            text_data = raw_bytes.decode('utf-8-sig', errors='replace')
+            delim = ';' if ';' in text_data.split('\n')[0] else ','
+            df_in = pd.read_csv(io.StringIO(text_data), sep=delim)
+        else:
+            df_in = pd.read_excel(uploaded_file)
+
+        in_cols = [str(c).lower().strip() for c in df_in.columns]
+        is_saved_layout = any('table' in c for c in in_cols) and any('guest' in c or 'name' in c for c in in_cols)
+
+        if is_saved_layout:
+            act_tbls, tbl_nms, tbl_dt, gst_mp = parse_saved_export(df_in)
+            saved_layout_override = {
+                'active_tables': act_tbls,
+                'table_names': tbl_nms,
+                'tables_data': tbl_dt,
+                'guest_map': gst_mp
+            }
+            parsed_guests = list(gst_mp.values())
+            st.success(f"Successfully restored arrangement with {len(parsed_guests)} guests across {len(act_tbls)} tables from `{uploaded_file.name}`!")
+        else:
+            uploaded_file.seek(0)
+            parsed_guests = parse_hitract_excel_dataset(uploaded_file)
+            st.success(f"Loaded {len(parsed_guests)} guests from Hitract file `{uploaded_file.name}`.")
+    except Exception as e:
+        st.error(f"Error reading file: {e}")
 
 guests_json = json.dumps(parsed_guests)
+saved_override_json = json.dumps(saved_layout_override) if saved_layout_override else "null"
 
 # ==========================================
 # INTERACTIEVE STUDIO & FLOOR PLAN (HTML/JS)
@@ -655,6 +743,8 @@ html_code = f"""
     <div>
         <span id="select-label" style="color: #9CA3AF; margin-right: 6px;">0 selected</span>
         <button class="btn btn-blue" id="groupBtn" onclick="bundleSelected()" disabled>Group Selected in Order</button>
+        <button class="btn btn-blue" onclick="document.getElementById('csvRestoreInput').click()" title="Directly restore seating arrangement from your downloaded CSV or Excel file">Import Saved CSV/Excel</button>
+        <input type="file" id="csvRestoreInput" accept=".csv, .xlsx" style="display: none;" onchange="importSavedCsvFile(event)">
         <button class="btn btn-green" onclick="exportCards()">Export Excel (Place Cards)</button>
         <button class="btn" onclick="exportPdf()">Save PDF (Tables & Allergies)</button>
         <button class="btn" onclick="resetLayout()">Reset Layout</button>
@@ -702,9 +792,10 @@ html_code = f"""
 </div>
 
 <script>
-    const STORAGE_KEY = "BALL_STUDIO_STORAGE_DYNAMIC_V8";
+    const STORAGE_KEY = "BALL_STUDIO_STORAGE_DYNAMIC_V9";
     const maxCapacity = {table_max_seats};
     const rawGuests = {guests_json};
+    const savedOverride = {saved_override_json};
 
     let currentMode = 'grid';
     let guestMap = {{}};
@@ -718,7 +809,6 @@ html_code = f"""
     let hallItems = [];
     let draggedId = null;
 
-    // Default 20 tafels initialiseren
     for (let i = 1; i <= 20; i++) {{
         activeTableIds.push(i);
         tableNames[i] = "TABLE " + (i < 10 ? '0' + i : i);
@@ -748,9 +838,6 @@ html_code = f"""
         }}
     }}
 
-    // ==========================================
-    // DYNAMIC TABLE MANAGEMENT
-    // ==========================================
     function rebuildTableGrid() {{
         const grid = document.getElementById('tables-grid');
         grid.innerHTML = '';
@@ -818,9 +905,6 @@ html_code = f"""
         renderFloorPlan();
     }}
 
-    // ==========================================
-    // NAAM & DIET BEWERKEN VIA DUBBELKLIK
-    // ==========================================
     function editGuestName(guestId) {{
         const g = guestMap[guestId];
         if (!g) return;
@@ -861,9 +945,6 @@ html_code = f"""
         }}
     }}
 
-    // ==========================================
-    // CARD CREATION
-    // ==========================================
     function createGuestCard(g) {{
         const div = document.createElement('div');
         div.className = 'guest-card';
@@ -933,9 +1014,6 @@ html_code = f"""
         }});
     }}
 
-    // ==========================================
-    // PRECISE INTRA-TABLE DRAG & DROP REORDERING
-    // ==========================================
     function dragStart(e, id) {{
         draggedId = id;
         e.dataTransfer.setData('text/plain', id);
@@ -1004,9 +1082,6 @@ html_code = f"""
         }}
     }}
 
-    // ==========================================
-    // GROEPEREN MET BEHOUD VAN VISUELE VOLGORDE
-    // ==========================================
     function toggleSelect(e, id) {{
         e.stopPropagation();
         if (e.target.checked) selectedIds.add(id);
@@ -1066,6 +1141,117 @@ html_code = f"""
         delete bundles[bId];
         updateCounters();
         saveState();
+    }}
+
+    // ==========================================
+    // CLIENT-SIDE DIRECT IMPORT OF SAVED CSV/EXCEL
+    // ==========================================
+    function importSavedCsvFile(e) {{
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = function(evt) {{
+            const content = evt.target.result;
+            processCsvImport(content);
+        }};
+        reader.readAsText(file);
+    }}
+
+    function processCsvImport(csvText) {{
+        const lines = csvText.split(/\\r?\\n/).map(l => l.trim()).filter(l => l.length > 0);
+        if (lines.length < 2) {{
+            alert("File appears to be empty.");
+            return;
+        }}
+
+        const headerLine = lines[0].replace(/^\\uFEFF/, '');
+        const delim = headerLine.includes(';') ? ';' : ',';
+        const headers = headerLine.split(delim).map(h => h.replace(/^["']|["']$/g, '').trim().toLowerCase());
+
+        const idxTable = headers.findIndex(h => h.includes('table'));
+        const idxName = headers.findIndex(h => h.includes('name') || h.includes('guest'));
+        const idxComm = headers.findIndex(h => h.includes('comm'));
+        const idxDiet = headers.findIndex(h => h.includes('diet'));
+        const idxPref = headers.findIndex(h => h.includes('pref'));
+
+        if (idxTable === -1 || idxName === -1) {{
+            alert("Could not identify 'Table' and 'Guest Name' columns in this file.");
+            return;
+        }}
+
+        guestMap = {{}};
+        bundles = {{}};
+        activeTableIds = [];
+        tableNames = {{}};
+        tablePositions = {{}};
+
+        const tableMap = {{}};
+        const tableCards = {{}};
+
+        for (let i = 1; i < lines.length; i++) {{
+            const rawParts = lines[i].split(delim);
+            const row = rawParts.map(p => p.replace(/^["']|["']$/g, '').trim());
+            if (row.length <= idxName) continue;
+
+            const tblStr = row[idxTable] || 'TABLE 01';
+            const nameStr = row[idxName] || '';
+            if (!nameStr) continue;
+
+            const commStr = idxComm !== -1 && row[idxComm] ? row[idxComm] : '';
+            const dietStr = idxDiet !== -1 && row[idxDiet] ? row[idxDiet] : '';
+            const prefStr = idxPref !== -1 && row[idxPref] ? row[idxPref] : '';
+
+            if (!tableMap[tblStr]) {{
+                const numMatch = tblStr.match(/\\d+/);
+                let tId = numMatch ? parseInt(numMatch[0]) : (activeTableIds.length + 1);
+                while (activeTableIds.includes(tId)) {{
+                    tId++;
+                }}
+                activeTableIds.push(tId);
+                tableMap[tblStr] = tId;
+                tableNames[tId] = tblStr;
+                tableCards[tId] = [];
+
+                let colIdx = (tId - 1) % 5;
+                let rowIdx = Math.floor((tId - 1) / 5);
+                tablePositions[tId] = {{ x: 40 + colIdx * 210, y: 70 + rowIdx * 180 }};
+            }}
+
+            const tId = tableMap[tblStr];
+            const gId = 'g_' + tId + '_' + i;
+            const prefs = prefStr ? prefStr.split('&').map(p => p.trim()) : [];
+
+            const gObj = {{
+                id: gId,
+                name: nameStr,
+                committee: commStr,
+                dietary: dietStr,
+                pref1: prefs[0] || '',
+                pref2: prefs[1] || ''
+            }};
+            guestMap[gId] = gObj;
+            tableCards[tId].push(gObj);
+        }}
+
+        activeTableIds.sort((a, b) => a - b);
+        rebuildTableGrid();
+
+        poolZone.innerHTML = '';
+        activeTableIds.forEach(tId => {{
+            const z = document.getElementById('zone-table-' + tId);
+            if (z) {{
+                z.innerHTML = '';
+                tableCards[tId].forEach(g => {{
+                    z.appendChild(createGuestCard(g));
+                }});
+            }}
+        }});
+
+        updateCounters();
+        saveState();
+        renderFloorPlan();
+        alert(`Successfully restored arrangement with ${{Object.keys(guestMap).length}} guests across ${{activeTableIds.length}} tables!`);
     }}
 
     // ==========================================
@@ -1313,6 +1499,31 @@ html_code = f"""
     }}
 
     function loadState() {{
+        if (savedOverride && savedOverride.active_tables) {{
+            activeTableIds = savedOverride.active_tables;
+            tableNames = savedOverride.table_names || tableNames;
+            guestMap = savedOverride.guest_map || guestMap;
+
+            rebuildTableGrid();
+            poolZone.innerHTML = '';
+
+            activeTableIds.forEach(tId => {{
+                const z = document.getElementById('zone-table-' + tId);
+                if (z) {{
+                    z.innerHTML = '';
+                    const items = savedOverride.tables_data[tId] || [];
+                    items.forEach(it => {{
+                        if (it.type === 'guest' && guestMap[it.id]) {{
+                            z.appendChild(createGuestCard(guestMap[it.id]));
+                        }}
+                    }});
+                }}
+            }});
+
+            saveState();
+            return true;
+        }}
+
         try {{
             const raw = localStorage.getItem(STORAGE_KEY);
             if (!raw) return false;
@@ -1511,9 +1722,6 @@ html_code = f"""
         document.body.removeChild(a);
     }}
 
-    // =========================================================================
-    // CLEAR STRUCTURED TABLE & ALLERGIES PRINTOUT MET RONDE TAFEL MET 10 STOELEN
-    // =========================================================================
     function exportPdf() {{
         saveState();
         let doc = `
